@@ -28,6 +28,7 @@ import practicasRoutes from './routes/practicas.routes.js';
 import laboratoriosRoutes from "./routes/laboratorios.routes.js";
 import encargadoRoutes from "./routes/encargado.routes.js";
 import materiaLaboratorioRoutes from "./routes/materiaLaboratorio.routes.js";
+import detalleSolicitudUsoRoutes from "./routes/detalleSolicitudUso.routes.js";
 
 
 
@@ -44,6 +45,7 @@ app.use(practicasRoutes);
 app.use(laboratoriosRoutes);
 app.use(encargadoRoutes);
 app.use(materiaLaboratorioRoutes);
+app.use(detalleSolicitudUsoRoutes);
 
 
 
