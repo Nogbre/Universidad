@@ -1,9 +1,5 @@
 import express from 'express';
-
-
 import cors from 'cors';
-
-
 
 const app = express(); 
 
@@ -11,10 +7,12 @@ app.use(cors({
     origin: 'http://localhost:5173', 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
-  }));
+}));
 
 app.use(express.json());
 
+// Importar rutas
+import authRoutes from './routes/auth.routes.js'; // Primero para login
 import InsumosRoutes from "./routes/Insumos.routes.js";
 import AlertasRoutes from "./routes/Alertas.routes.js";
 import SolicitudesRoutes from './routes/Solicitudes.routes.js';
@@ -29,9 +27,8 @@ import encargadoRoutes from "./routes/encargado.routes.js";
 import materiaLaboratorioRoutes from "./routes/materiaLaboratorio.routes.js";
 import detalleSolicitudUsoRoutes from "./routes/detalleSolicitudUso.routes.js";
 
-
-
-// app.use(usuariosRoutes);  
+// Usar rutas
+app.use('/auth', authRoutes); // Login
 app.use(InsumosRoutes); 
 app.use(AlertasRoutes);
 app.use(SolicitudesRoutes);
@@ -45,10 +42,5 @@ app.use(laboratoriosRoutes);
 app.use(encargadoRoutes);
 app.use(materiaLaboratorioRoutes);
 app.use(detalleSolicitudUsoRoutes);
-
-
-
-  
-
 
 export default app;
