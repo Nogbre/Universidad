@@ -425,7 +425,7 @@ export const devolverSolicitud = async (req, res) => {
         const solicitud = await new sql.Request(transaction)
             .input('id', sql.Int, solicitudId)
             .query(`
-                SELECT estado
+                SELECT estado, fecha_hora_fin
                 FROM SolicitudesUso
                 WHERE id_solicitud = @id
             `);
@@ -450,32 +450,40 @@ export const devolverSolicitud = async (req, res) => {
                 WHERE id_solicitud = @id
             `);
 
+        const fechaDevolucion = new Date();
+
         for (const detalle of detalles.recordset) {
-            const updateResult = await new sql.Request(transaction)
+            await new sql.Request(transaction)
                 .input('id_insumo', sql.Int, detalle.id_insumo)
                 .input('cantidad', sql.Int, detalle.cantidad_total)
                 .query(`
-                    UPDATE Insumos
-                    SET stock_actual = stock_actual + @cantidad
+                    UPDATE Insumos 
+                    SET stock_actual = stock_actual + @cantidad 
                     WHERE id_insumo = @id_insumo
                 `);
-
-            if (updateResult.rowsAffected[0] === 0) {
-                await transaction.rollback();
-                return res.status(404).json({
-                    message: `Insumo ${detalle.id_insumo} no encontrado`
-                });
-            }
 
             await new sql.Request(transaction)
                 .input('id_insumo', sql.Int, detalle.id_insumo)
                 .input('cantidad', sql.Int, detalle.cantidad_total)
                 .input('id_solicitud', sql.Int, solicitudId)
                 .input('responsable', sql.VarChar(100), 'Sistema')
+                .input('fecha_devuelto', sql.DateTime, fechaDevolucion)
                 .query(`
-                    INSERT INTO MovimientosInventario
-                        (id_insumo, tipo_movimiento, cantidad, responsable, id_solicitud)
-                    VALUES (@id_insumo, 'DEVOLUCION', @cantidad, @responsable, @id_solicitud)
+                    INSERT INTO MovimientosInventario (
+                        id_insumo,
+                        tipo_movimiento,
+                        cantidad,
+                        responsable,
+                        id_solicitud,
+                        fecha_devuelto
+                    ) VALUES (
+                                 @id_insumo,
+                                 'DEVOLUCION',
+                                 @cantidad,
+                                 @responsable,
+                                 @id_solicitud,
+                                 @fecha_devuelto
+                             )
                 `);
         }
 
@@ -488,17 +496,20 @@ export const devolverSolicitud = async (req, res) => {
             `);
 
         await transaction.commit();
+
         res.json({
-            message: "Devolución completada exitosamente",
-            insumosRestaurados: detalles.recordset
+            message: "Devolución registrada exitosamente",
+            fecha_devolucion: fechaDevolucion.toISOString(),
+            insumos_restaurados: detalles.recordset.length
         });
 
     } catch (error) {
         if (transactionStarted) await transaction.rollback();
         console.error('Error al registrar devolución:', error);
         res.status(500).json({
-            message: "Error al registrar devolución",
-            details: error.message
+            message: "Error en el proceso de devolución",
+            details: error.message,
+            operation: "DEVOLUCION_SOLICITUD"
         });
     }
 };
