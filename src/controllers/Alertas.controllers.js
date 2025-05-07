@@ -3,11 +3,10 @@ import sql from 'mssql';
 
 export const createAlerta = async (req, res) => {
   try {
-    const { id_insumo, tipo } = req.body; // Nuevo parámetro 'tipo'
+    const { id_insumo, tipo } = req.body;
 
     const pool = await getConnection();
 
-    // Obtener datos del insumo
     const insumo = await pool.request()
         .input('id_insumo', sql.Int, id_insumo)
         .query(`
@@ -22,7 +21,6 @@ export const createAlerta = async (req, res) => {
 
     const { nombre, stock_actual, stock_minimo, stock_maximo } = insumo.recordset[0];
 
-    // Generar mensaje según el tipo de alerta
     let mensaje;
     switch (tipo) {
       case 'stock_bajo':
@@ -35,7 +33,6 @@ export const createAlerta = async (req, res) => {
         return res.status(400).json({ message: "Tipo de alerta inválido" });
     }
 
-    // Crear alerta
     const result = await pool.request()
         .input('id_insumo', sql.Int, id_insumo)
         .input('mensaje', sql.Text, mensaje)
