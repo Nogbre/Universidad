@@ -30,6 +30,7 @@ import encargadoRoutes from "./routes/encargado.routes.js";
 import materiaLaboratorioRoutes from "./routes/materiaLaboratorio.routes.js";
 import detalleSolicitudUsoRoutes from "./routes/detalleSolicitudUso.routes.js";
 import insumosPorPracticaRoutes from "./routes/insumosPorPractica.routes.js";
+import movimientosInventarioRoutes from "./routes/movimientosInventario.routes.js";
 
 
 // app.use(usuariosRoutes);  
@@ -47,6 +48,7 @@ app.use(encargadoRoutes);
 app.use(materiaLaboratorioRoutes);
 app.use(detalleSolicitudUsoRoutes);
 app.use(insumosPorPracticaRoutes);
+app.use('/movimientos-inventario', movimientosInventarioRoutes);
 
 
 
