@@ -35,7 +35,7 @@ import authRoutes from './routes/auth.routes.js';
 
 
 // app.use(usuariosRoutes);  
-app.use('/auth', authRoutes);
+app.use(authRoutes);
 app.use(InsumosRoutes); 
 app.use(AlertasRoutes);
 app.use(SolicitudesRoutes);
