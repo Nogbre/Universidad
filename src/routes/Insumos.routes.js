@@ -7,7 +7,8 @@ import {
     createInsumo,
     updateInsumo,
     deleteInsumo,
-    getInsumosPorUbicacion
+    getInsumosPorUbicacion,
+    getInsumosEnUsoPorEncargado 
 } from '../controllers/Insumos.controllers.js'
 // import { verifyToken } from '../middlewares/verifyToken.js';
 
@@ -41,6 +42,9 @@ router.put('/Insumos/:id', updateInsumo);
 router.delete('/Insumos/:id', deleteInsumo);
 
 router.get('/insumos/ubicacion/:ubicacion', getInsumosPorUbicacion);
+
+router.get('/insumos-en-uso', getInsumosEnUsoPorEncargado);
+
 
 
 
