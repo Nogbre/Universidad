@@ -31,9 +31,11 @@ import materiaLaboratorioRoutes from "./routes/materiaLaboratorio.routes.js";
 import detalleSolicitudUsoRoutes from "./routes/detalleSolicitudUso.routes.js";
 import insumosPorPracticaRoutes from "./routes/insumosPorPractica.routes.js";
 import movimientosInventarioRoutes from "./routes/movimientosInventario.routes.js";
+import authRoutes from './routes/auth.routes.js';
 
 
 // app.use(usuariosRoutes);  
+app.use('/auth', authRoutes);
 app.use(InsumosRoutes); 
 app.use(AlertasRoutes);
 app.use(SolicitudesRoutes);
