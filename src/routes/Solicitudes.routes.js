@@ -3,7 +3,8 @@ import {
   createSolicitud,
   getSolicitudes,
   getSolicitud,
-  updateSolicitud
+  updateSolicitud,
+  deleteSolicitud
 } from '../controllers/Solicitudes.controllers.js';
 
 const router = Router();
