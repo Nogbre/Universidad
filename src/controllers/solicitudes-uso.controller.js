@@ -19,9 +19,11 @@ export const createSolicitudUso = async (req, res) => {
         } = req.body;
 
         const requiredFields = [
-            'id_docente', 'id_laboratorio',
-            'fecha_hora_inicio', 'fecha_hora_fin',
-            'numero_estudiantes'
+            'id_docente',
+            'id_laboratorio',
+            'fecha_hora_inicio',
+            'numero_estudiantes',
+            'id_practica'
         ];
 
         const missingFields = requiredFields.filter(field => !req.body[field]);
@@ -31,9 +33,15 @@ export const createSolicitudUso = async (req, res) => {
             });
         }
 
+        if (fecha_hora_fin && isNaN(new Date(fecha_hora_fin).getTime())) {
+            return res.status(400).json({
+                message: "Formato de fecha/hora fin inválido (Usar ISO8601)"
+            });
+        }
+
         if (numero_estudiantes <= 0 || tamano_grupo <= 0) {
             return res.status(400).json({
-                message: "Número de estudiantes y tamaño de grupo deben ser mayores a 0"
+                message: "Número de estudiantes y tamaño de grupo deben ser > 0"
             });
         }
 
@@ -54,15 +62,20 @@ export const createSolicitudUso = async (req, res) => {
         const numero_grupos = Math.ceil(numero_estudiantes / tamano_grupo);
         if (numero_grupos > 50) {
             await transaction.rollback();
-            return res.status(400).json({ message: "Número de grupos excede el límite permitido" });
+            return res.status(400).json({
+                message: "Máximo 50 grupos permitidos",
+                calculado: numero_grupos
+            });
         }
+
+        const fechaFinDefinitiva = fecha_hora_fin ? new Date(fecha_hora_fin) : new Date(fecha_hora_inicio); // mismo inicio si no viene
 
         const solicitudResult = await new sql.Request(transaction)
             .input('id_docente', sql.Int, id_docente)
             .input('id_practica', sql.Int, id_practica)
             .input('id_laboratorio', sql.Int, id_laboratorio)
-            .input('fecha_hora_inicio', sql.DateTime, fecha_hora_inicio)
-            .input('fecha_hora_fin', sql.DateTime, fecha_hora_fin)
+            .input('fecha_hora_inicio', sql.DateTime, new Date(fecha_hora_inicio))
+            .input('fecha_hora_fin', sql.DateTime, fechaFinDefinitiva)
             .input('numero_estudiantes', sql.Int, numero_estudiantes)
             .input('tamano_grupo', sql.Int, tamano_grupo)
             .input('numero_grupos', sql.Int, numero_grupos)
@@ -73,54 +86,48 @@ export const createSolicitudUso = async (req, res) => {
                     fecha_hora_inicio, fecha_hora_fin, numero_estudiantes,
                     tamano_grupo, numero_grupos, observaciones
                 )
-                    OUTPUT INSERTED.id_solicitud
+                OUTPUT INSERTED.id_solicitud
                 VALUES (
                     @id_docente, @id_practica, @id_laboratorio,
                     @fecha_hora_inicio, @fecha_hora_fin, @numero_estudiantes,
                     @tamano_grupo, @numero_grupos, @observaciones
-                    )
+                )
             `);
 
         const id_solicitud = solicitudResult.recordset[0].id_solicitud;
 
         let insumosAFacturar = [];
 
-        if (id_practica) {
-            const practicaInsumos = await new sql.Request(transaction)
-                .input('id_practica', sql.Int, id_practica)
-                .query(`
-                    SELECT id_insumo, cantidad_requerida
-                    FROM InsumosPorPractica
-                    WHERE id_practica = @id_practica
-                `);
+        const practicaInsumos = await new sql.Request(transaction)
+            .input('id_practica', sql.Int, id_practica)
+            .query(`
+                SELECT id_insumo, cantidad_requerida 
+                FROM InsumosPorPractica 
+                WHERE id_practica = @id_practica
+            `);
 
-            if (practicaInsumos.recordset.length === 0) {
-                await transaction.rollback();
-                return res.status(400).json({
-                    message: "La práctica no tiene insumos configurados"
-                });
-            }
+        if (practicaInsumos.recordset.length === 0) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "La práctica no tiene insumos configurados"
+            });
+        }
 
-            insumosAFacturar = practicaInsumos.recordset.map(pi => ({
-                id_insumo: pi.id_insumo,
-                cantidad_por_grupo: pi.cantidad_requerida
-            }));
+        insumosAFacturar = practicaInsumos.recordset.map(pi => ({
+            id_insumo: pi.id_insumo,
+            cantidad_por_grupo: pi.cantidad_requerida
+        }));
 
-            if (insumosManuales?.length > 0) {
-                console.warn('Advertencia: Insumos manuales ignorados por existencia de práctica');
-            }
-        } else {
-            if (!Array.isArray(insumosManuales) || insumosManuales.length === 0) {
-                await transaction.rollback();
-                return res.status(400).json({ message: "Debe especificar insumos o seleccionar práctica" });
-            }
-            insumosAFacturar = insumosManuales;
+        if (insumosManuales?.length > 0) {
+            console.warn('Advertencia: Insumos manuales ignorados (práctica seleccionada)');
         }
 
         for (const insumo of insumosAFacturar) {
             if (!insumo.id_insumo || !insumo.cantidad_por_grupo) {
                 await transaction.rollback();
-                return res.status(400).json({ message: "Formato de insumo inválido" });
+                return res.status(400).json({
+                    message: "Formato de insumo inválido: id_insumo y cantidad_por_grupo requeridos"
+                });
             }
 
             const cantidad_total = insumo.cantidad_por_grupo * numero_grupos;
@@ -131,7 +138,9 @@ export const createSolicitudUso = async (req, res) => {
 
             if (!insumoExists.recordset.length) {
                 await transaction.rollback();
-                return res.status(404).json({ message: `Insumo ${insumo.id_insumo} no encontrado` });
+                return res.status(404).json({
+                    message: `Insumo ${insumo.id_insumo} no registrado en el sistema`
+                });
             }
 
             await new sql.Request(transaction)
@@ -151,21 +160,24 @@ export const createSolicitudUso = async (req, res) => {
         res.status(201).json({
             id_solicitud,
             message: "Solicitud creada exitosamente",
-            detalle: `${insumosAFacturar.length} insumos registrados`
+            detalle: {
+                insumos_registrados: insumosAFacturar.length,
+                nota: fecha_hora_fin
+                    ? "Fecha fin proporcionada manualmente"
+                    : "Fecha fin se asignó igual a la fecha de inicio porque no se proporcionó"
+            }
         });
 
     } catch (error) {
         if (transactionStarted && transaction) await transaction.rollback();
 
-        console.error('Error al crear solicitud:', error);
-
-        const errorMessage = error.number === 2627
-            ? "Conflicto de datos: Posible duplicidad"
-            : "Error interno al crear solicitud";
-
-        res.status(500).json({
-            message: errorMessage,
-            details: error.message,
+        console.error('Error crítico:', error);
+        const statusCode = error.number === 2627 ? 409 : 500;
+        res.status(statusCode).json({
+            message: error.number === 2627
+                ? "Conflicto: Posible duplicidad de registros"
+                : "Error interno del servidor",
+            error: error.message,
             operation: "CREATE_SOLICITUD_USO"
         });
     }
