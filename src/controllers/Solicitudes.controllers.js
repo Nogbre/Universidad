@@ -123,8 +123,11 @@ export const updateSolicitud = async (req, res) => {
 export const deleteSolicitud = async (req, res) => {
   const { id } = req.params;
 
-  if (!id || isNaN(id)) {
-    return res.status(400).json({ message: "ID inválido" });
+  if (!id || isNaN(id) || parseInt(id) <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "ID de solicitud inválido"
+    });
   }
 
   try {
@@ -134,13 +137,24 @@ export const deleteSolicitud = async (req, res) => {
         .query('DELETE FROM SolicitudesAdquisicion WHERE id_solicitud = @id_solicitud');
 
     if (result.rowsAffected[0] === 0) {
-      return res.status(404).json({ message: "Solicitud no encontrada" });
+      return res.status(404).json({
+        success: false,
+        message: `Solicitud con ID ${id} no encontrada`
+      });
     }
 
-    return res.status(200).json({ message: "Solicitud eliminada correctamente" });
+    res.json({
+      success: true,
+      message: "Solicitud eliminada permanentemente"
+    });
+
   } catch (error) {
-    console.error("Error al eliminar solicitud:", error);
-    return res.status(500).json({ message: "Error del servidor al eliminar la solicitud" });
+    console.error("Error al eliminar:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error crítico en el servidor",
+      error: error.message
+    });
   }
 };
 
