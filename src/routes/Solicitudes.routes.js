@@ -12,5 +12,6 @@ router.get('/solicitudes', getSolicitudes);
 router.get('/solicitudes/:id', getSolicitud);
 router.post('/solicitudes', createSolicitud);
 router.put('/solicitudes/:id', updateSolicitud);
+router.delete('/solicitudes/:id', deleteSolicitud);
 
 export default router;

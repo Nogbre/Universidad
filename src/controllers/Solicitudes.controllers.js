@@ -1,7 +1,6 @@
 import { getConnection } from "../database/connection.js";
 import sql from 'mssql';
 
-// Crear solicitud
 export const createSolicitud = async (req, res) => {
   try {
     const { nombre_solicitud, cantidad_solicitada, estado, observaciones } = req.body;
@@ -32,7 +31,6 @@ export const createSolicitud = async (req, res) => {
   }
 };
 
-// Obtener todas las solicitudes
 export const getSolicitudes = async (req, res) => {
   try {
     const pool = await getConnection();
@@ -44,7 +42,6 @@ export const getSolicitudes = async (req, res) => {
   }
 };
 
-// Obtener una solicitud por ID
 export const getSolicitud = async (req, res) => {
   const { id } = req.params;
   try {
@@ -79,7 +76,6 @@ export const updateSolicitud = async (req, res) => {
   try {
     const pool = await getConnection();
 
-    // Usamos id_solicitud en vez de id
     const existing = await pool.request()
         .input('id_solicitud', sql.Int, id)
         .query(`
@@ -101,7 +97,6 @@ export const updateSolicitud = async (req, res) => {
       return res.status(200).json({ message: "No se realizaron cambios" });
     }
 
-    // Update usando id_solicitud
     await pool.request()
         .input('id_solicitud', sql.Int, id)
         .input('estado', sql.VarChar(30), estadoNuevo)
@@ -117,6 +112,30 @@ export const updateSolicitud = async (req, res) => {
   } catch (error) {
     console.error("Error al actualizar solicitud:", error);
     res.status(500).json({ message: "Error al actualizar solicitud" });
+  }
+};
+
+export const deleteSolicitud = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ message: "ID inválido" });
+  }
+
+  try {
+    const pool = await getConnection();
+    const result = await pool.request()
+        .input('id_solicitud', sql.Int, id)
+        .query('DELETE FROM SolicitudesAdquisicion WHERE id_solicitud = @id_solicitud');
+
+    if (result.rowsAffected[0] === 0) {
+      return res.status(404).json({ message: "Solicitud no encontrada" });
+    }
+
+    return res.status(200).json({ message: "Solicitud eliminada correctamente" });
+  } catch (error) {
+    console.error("Error al eliminar solicitud:", error);
+    return res.status(500).json({ message: "Error del servidor al eliminar la solicitud" });
   }
 };
 
