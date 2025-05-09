@@ -149,3 +149,36 @@ export const getInsumosPorUbicacion = async (req, res) => {
         res.status(500).json({ message: "Error al obtener insumos" });
     }
 };
+
+
+export const getInsumosEnUsoPorEncargado = async (req, res) => {
+  const { id_encargado } = req.query;
+
+  if (!id_encargado) {
+    return res.status(400).json({ message: "id_encargado es requerido" });
+  }
+
+  try {
+    const pool = await getConnection();
+    const result = await pool.request()
+      .input('id_encargado', sql.Int, id_encargado)
+      .query(`
+        SELECT 
+          i.id_insumo,
+          i.nombre AS insumo_nombre,
+          dsu.cantidad_total,
+          l.nombre AS laboratorio_nombre,
+          s.id_solicitud
+        FROM SolicitudesUso s
+        JOIN DetalleSolicitudUso dsu ON s.id_solicitud = dsu.id_solicitud
+        JOIN Insumos i ON dsu.id_insumo = i.id_insumo
+        JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
+        WHERE s.estado = 'Aprobada' AND l.id_encargado = @id_encargado
+      `);
+
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error al obtener insumos en uso:', error);
+    res.status(500).json({ message: 'Error al obtener insumos en uso' });
+  }
+};

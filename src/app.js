@@ -16,6 +16,7 @@ app.use(cors({
 
 app.use(express.json());
 
+import authRoutes from './routes/auth.routes.js';
 import InsumosRoutes from "./routes/Insumos.routes.js";
 import AlertasRoutes from "./routes/Alertas.routes.js";
 import SolicitudesRoutes from './routes/Solicitudes.routes.js';
@@ -34,6 +35,7 @@ import movimientosInventarioRoutes from "./routes/movimientosInventario.routes.j
 
 
 // app.use(usuariosRoutes);  
+app.use('/auth', authRoutes);
 app.use(InsumosRoutes); 
 app.use(AlertasRoutes);
 app.use(SolicitudesRoutes);

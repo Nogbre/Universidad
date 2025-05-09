@@ -173,7 +173,7 @@ export const createSolicitudUso = async (req, res) => {
 
 export const getSolicitudesUso = async (req, res) => {
     try {
-        const { estado } = req.query;
+        const { estado, id_docente } = req.query;
         const pool = await getConnection();
 
         let query = `
@@ -186,9 +186,20 @@ export const getSolicitudesUso = async (req, res) => {
         `;
 
         const request = pool.request();
+        const conditions = [];
+
         if (estado) {
-            query += " WHERE s.estado = @estado";
+            conditions.push("s.estado = @estado");
             request.input('estado', sql.VarChar(20), estado);
+        }
+
+        if (id_docente) {
+            conditions.push("s.id_docente = @id_docente");
+            request.input('id_docente', sql.Int, id_docente);
+        }
+
+        if (conditions.length > 0) {
+            query += " WHERE " + conditions.join(" AND ");
         }
 
         const result = await request.query(query);
