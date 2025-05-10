@@ -118,21 +118,45 @@ export const updateInsumo = async (req, res) => {
 ////////////////////////////////
 
 
-export const deleteInsumo = async (req, res) => {
-    const pool = await getConnection();
-    try {
-        const result = await pool.request()
-            .input("id", sql.Int, req.params.id)
-            .query("DELETE FROM Insumos WHERE id_insumo = @id");
+// export const deleteInsumo = async (req, res) => {
+//     const pool = await getConnection();
+//     try {
+//         const result = await pool.request()
+//             .input("id", sql.Int, req.params.id)
+//             .query("DELETE FROM Insumos WHERE id_insumo = @id");
 
-        if (result.rowsAffected[0] === 0) {
-            return res.status(404).json({ message: "Insumo no encontrado" });
-        }
-        return res.json({ message: "Insumo eliminado correctamente" });
-    } catch (error) {
-        console.error('Error al eliminar insumo:', error);
-        res.status(500).json({ message: "Error interno del servidor" });
+//         if (result.rowsAffected[0] === 0) {
+//             return res.status(404).json({ message: "Insumo no encontrado" });
+//         }
+//         return res.json({ message: "Insumo eliminado correctamente" });
+//     } catch (error) {
+//         console.error('Error al eliminar insumo:', error);
+//         res.status(500).json({ message: "Error interno del servidor" });
+//     }
+// };
+
+export const deleteInsumo = async (req, res) => {
+  const pool = await getConnection();
+  const id = req.params.id;
+  try {
+    // 1) Eliminar alertas hijas
+    await pool.request()
+      .input("id", sql.Int, id)
+      .query("DELETE FROM Alertas WHERE id_insumo = @id");
+
+    // 2) Ahora sí borrar el insumo
+    const result = await pool.request()
+      .input("id", sql.Int, id)
+      .query("DELETE FROM Insumos WHERE id_insumo = @id");
+
+    if (result.rowsAffected[0] === 0) {
+      return res.status(404).json({ message: "Insumo no encontrado" });
     }
+    return res.json({ message: "Insumo eliminado correctamente" });
+  } catch (error) {
+    console.error("Error al eliminar insumo o alertas:", error.number, error.message);
+    return res.status(500).json({ message: "Error interno del servidor" });
+  }
 };
 
 export const getInsumosPorUbicacion = async (req, res) => {
