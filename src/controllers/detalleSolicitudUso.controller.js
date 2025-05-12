@@ -138,3 +138,45 @@ export const deleteDetalle = async (req, res) => {
         });
     }
 };
+
+export const deleteAllDetalles = async (req, res) => {
+    let transaction;
+    try {
+        const pool = await getConnection();
+        transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        const detalles = await new sql.Request(transaction)
+            .query(`
+                SELECT d.id_detalle_solicitud, d.id_insumo, d.cantidad_total, s.estado
+                FROM DetalleSolicitudUso d
+                JOIN SolicitudesUso s ON d.id_solicitud = s.id_solicitud
+            `);
+
+        for (const detalle of detalles.recordset) {
+            if (detalle.estado === 'Aprobada') {
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad_total', sql.Int, detalle.cantidad_total)
+                    .query(`
+                        UPDATE Insumos
+                        SET stock_actual = stock_actual + @cantidad_total
+                        WHERE id_insumo = @id_insumo
+                    `);
+            }
+        }
+
+        await new sql.Request(transaction)
+            .query('DELETE FROM DetalleSolicitudUso');
+
+        await transaction.commit();
+        res.json({ message: "Todos los detalles fueron eliminados correctamente." });
+
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        res.status(500).json({
+            message: "Error eliminando todos los detalles",
+            error: error.message
+        });
+    }
+};

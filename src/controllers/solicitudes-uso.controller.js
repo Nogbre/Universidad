@@ -592,3 +592,28 @@ export const getPracticasConInsumos = async (req, res) => {
     }
 };
 
+export const deleteAllSolicitudesUso = async (req, res) => {
+    let transaction;
+    try {
+        const pool = await getConnection();
+        transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        await new sql.Request(transaction)
+            .query('DELETE FROM DetalleSolicitudUso');
+
+        await new sql.Request(transaction)
+            .query('DELETE FROM SolicitudesUso');
+
+        await transaction.commit();
+        res.status(200).json({ message: "Todas las solicitudes y sus detalles fueron eliminadas con éxito" });
+
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        console.error("Error al eliminar todas las solicitudes:", error);
+        res.status(500).json({
+            message: "Error al intentar borrar todas las solicitudes",
+            error: error.message
+        });
+    }
+};

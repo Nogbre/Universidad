@@ -115,3 +115,21 @@ export const getMovimientoById = async (req, res) => {
         });
     }
 };
+
+export const deleteAllMovimientos = async (req, res) => {
+    try {
+        const pool = await getConnection();
+        const result = await pool.request().query(`DELETE FROM MovimientosInventario`);
+
+        res.status(200).json({
+            message: "Todos los movimientos de inventario fueron eliminados exitosamente.",
+            filasAfectadas: result.rowsAffected[0]
+        });
+    } catch (error) {
+        console.error("Error al eliminar movimientos:", error);
+        res.status(500).json({
+            message: "Error al eliminar los movimientos de inventario",
+            error: error.message
+        });
+    }
+};

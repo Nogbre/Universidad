@@ -6,7 +6,7 @@ import {
     updateEstadoSolicitud,
     devolverSolicitud,
     getInsumosPorSolicitud,
-    getPracticasConInsumos,
+    getPracticasConInsumos, deleteAllSolicitudesUso,
 } from '../controllers/solicitudes-uso.controller.js';
 
 
@@ -23,5 +23,6 @@ router.put('/solicitudes-uso/:id/estado', updateEstadoSolicitud);
 router.post('/solicitudes-uso/:id/devolver', devolverSolicitud);
 router.get('/solicitudes-uso/:id/insumos', getInsumosPorSolicitud);
 router.get('/solicitudes-uso/:id/practicas', getPracticasConInsumos);
+router.delete('/solicitudes', deleteAllSolicitudesUso);
 
 export default router;
