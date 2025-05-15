@@ -1,22 +1,29 @@
 import express from 'express';
-
-
 import cors from 'cors';
 
+const app = express();
 
-
-const app = express(); 
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://laboratorio-web.vercel.app'
+];
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://laboratorio-web.vercel.app'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  credentials: true
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true); // para peticiones sin origen (postman, curl)
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS no permitido por origen: ' + origin));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 }));
-
-
 
 app.use(express.json());
 
+// Importar rutas
 import authRoutes from './routes/auth.routes.js';
 import InsumosRoutes from "./routes/Insumos.routes.js";
 import AlertasRoutes from "./routes/Alertas.routes.js";
@@ -34,10 +41,8 @@ import detalleSolicitudUsoRoutes from "./routes/detalleSolicitudUso.routes.js";
 import insumosPorPracticaRoutes from "./routes/insumosPorPractica.routes.js";
 import movimientosInventarioRoutes from "./routes/movimientosInventario.routes.js";
 
-
-// app.use(usuariosRoutes);  
 app.use('/auth', authRoutes);
-app.use(InsumosRoutes); 
+app.use(InsumosRoutes);
 app.use(AlertasRoutes);
 app.use(SolicitudesRoutes);
 app.use(docentesRoutes);
@@ -52,10 +57,5 @@ app.use(materiaLaboratorioRoutes);
 app.use(detalleSolicitudUsoRoutes);
 app.use(insumosPorPracticaRoutes);
 app.use('/movimientos-inventario', movimientosInventarioRoutes);
-
-
-
-  
-
 
 export default app;
