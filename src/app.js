@@ -9,18 +9,11 @@ const allowedOrigins = [
   'https://www.laboratorio-web.vercel.app'
 ];
 
-
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true); // para peticiones sin origen (postman, curl)
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('CORS no permitido por origen: ' + origin));
-    }
-  },
+  origin: allowedOrigins,
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
