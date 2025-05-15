@@ -5,8 +5,10 @@ const app = express();
 
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://laboratorio-web.vercel.app'
+  'https://laboratorio-web.vercel.app',
+  'https://www.laboratorio-web.vercel.app'
 ];
+
 
 app.use(cors({
   origin: function(origin, callback) {
