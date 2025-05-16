@@ -433,6 +433,7 @@ export const devolverSolicitud = async (req, res) => {
 
     try {
         const { id } = req.params;
+        const { insumos_no_devueltos = [] } = req.body;
 
         if (isNaN(id) || !Number.isInteger(Number(id))) {
             return res.status(400).json({
@@ -440,6 +441,14 @@ export const devolverSolicitud = async (req, res) => {
                 details: "El ID debe ser un número entero"
             });
         }
+
+        if (!Array.isArray(insumos_no_devueltos)) {
+            return res.status(400).json({
+                message: "Formato inválido para insumos no devueltos",
+                details: "Debe ser un array de objetos { id_insumo, cantidad_no_devuelta }"
+            });
+        }
+
         const solicitudId = parseInt(id, 10);
 
         await transaction.begin();
@@ -451,6 +460,7 @@ export const devolverSolicitud = async (req, res) => {
                 SELECT estado, fecha_hora_fin
                 FROM SolicitudesUso
                 WHERE id_solicitud = @id
+                    FOR UPDATE
             `);
 
         if (solicitud.recordset.length === 0) {
@@ -468,17 +478,34 @@ export const devolverSolicitud = async (req, res) => {
         const detalles = await new sql.Request(transaction)
             .input('id', sql.Int, solicitudId)
             .query(`
-                SELECT id_insumo, cantidad_total
-                FROM DetalleSolicitudUso
-                WHERE id_solicitud = @id
+                SELECT d.id_insumo, d.cantidad_total, i.nombre
+                FROM DetalleSolicitudUso d
+                JOIN Insumos i ON d.id_insumo = i.id_insumo
+                WHERE d.id_solicitud = @id
             `);
 
         const fechaDevolucion = new Date();
+        const noDevueltosValidos = [];
+        const erroresValidacion = [];
 
         for (const detalle of detalles.recordset) {
+            const noDevuelto = insumos_no_devueltos.find(i => i.id_insumo === detalle.id_insumo);
+            const cantidadNoDevuelta = noDevuelto?.cantidad_no_devuelta || 0;
+
+            if (cantidadNoDevuelta < 0 || cantidadNoDevuelta > detalle.cantidad_total) {
+                erroresValidacion.push({
+                    id_insumo: detalle.id_insumo,
+                    nombre: detalle.nombre,
+                    error: `Cantidad no devuelta inválida (0 - ${detalle.cantidad_total})`
+                });
+                continue;
+            }
+
+            const cantidadDevuelta = detalle.cantidad_total - cantidadNoDevuelta;
+
             await new sql.Request(transaction)
                 .input('id_insumo', sql.Int, detalle.id_insumo)
-                .input('cantidad', sql.Int, detalle.cantidad_total)
+                .input('cantidad', sql.Int, cantidadDevuelta)
                 .query(`
                     UPDATE Insumos 
                     SET stock_actual = stock_actual + @cantidad 
@@ -487,9 +514,9 @@ export const devolverSolicitud = async (req, res) => {
 
             await new sql.Request(transaction)
                 .input('id_insumo', sql.Int, detalle.id_insumo)
-                .input('cantidad', sql.Int, detalle.cantidad_total)
+                .input('cantidad', sql.Int, cantidadDevuelta)
                 .input('id_solicitud', sql.Int, solicitudId)
-                .input('responsable', sql.VarChar(100), 'Sistema')
+                .input('responsable', sql.VarChar(100), 'Encargado Laboratorio')
                 .input('fecha_devuelto', sql.DateTime, fechaDevolucion)
                 .query(`
                     INSERT INTO MovimientosInventario (
@@ -500,21 +527,61 @@ export const devolverSolicitud = async (req, res) => {
                         id_solicitud,
                         fecha_devuelto
                     ) VALUES (
-                                 @id_insumo,
-                                 'DEVOLUCION',
-                                 @cantidad,
-                                 @responsable,
-                                 @id_solicitud,
-                                 @fecha_devuelto
-                             )
+                        @id_insumo,
+                        'DEVOLUCION',
+                        @cantidad,
+                        @responsable,
+                        @id_solicitud,
+                        @fecha_devuelto
+                    )
                 `);
+
+            if (cantidadNoDevuelta > 0) {
+                noDevueltosValidos.push({
+                    id_insumo: detalle.id_insumo,
+                    cantidad_no_devuelta: cantidadNoDevuelta,
+                    nombre: detalle.nombre
+                });
+
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, cantidadNoDevuelta)
+                    .input('id_solicitud', sql.Int, solicitudId)
+                    .input('responsable', sql.VarChar(100), 'Encargado Laboratorio')
+                    .query(`
+                        INSERT INTO MovimientosInventario (
+                            id_insumo,
+                            tipo_movimiento,
+                            cantidad,
+                            responsable,
+                            id_solicitud
+                        ) VALUES (
+                            @id_insumo,
+                            'NO_DEVUELTO',
+                            @cantidad,
+                            @responsable,
+                            @id_solicitud
+                        )
+                    `);
+            }
+        }
+
+        if (erroresValidacion.length > 0) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "Errores en los datos de insumos no devueltos",
+                errores: erroresValidacion
+            });
         }
 
         await new sql.Request(transaction)
             .input('id', sql.Int, solicitudId)
+            .input('insumos_no_devueltos', sql.NVarChar(sql.MAX), JSON.stringify(noDevueltosValidos))
             .query(`
                 UPDATE SolicitudesUso
-                SET estado = 'Completada'
+                SET
+                    estado = 'Completada',
+                    insumos_no_devueltos = @insumos_no_devueltos
                 WHERE id_solicitud = @id
             `);
 
@@ -523,7 +590,8 @@ export const devolverSolicitud = async (req, res) => {
         res.json({
             message: "Devolución registrada exitosamente",
             fecha_devolucion: fechaDevolucion.toISOString(),
-            insumos_restaurados: detalles.recordset.length
+            insumos_devueltos: detalles.recordset.length - noDevueltosValidos.length,
+            insumos_no_devueltos: noDevueltosValidos
         });
 
     } catch (error) {
