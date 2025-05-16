@@ -458,9 +458,8 @@ export const devolverSolicitud = async (req, res) => {
             .input('id', sql.Int, solicitudId)
             .query(`
                 SELECT estado, fecha_hora_fin
-                FROM SolicitudesUso
+                FROM SolicitudesUso WITH (UPDLOCK, ROWLOCK)
                 WHERE id_solicitud = @id
-                    FOR UPDATE
             `);
 
         if (solicitud.recordset.length === 0) {
