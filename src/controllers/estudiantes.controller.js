@@ -1,0 +1,349 @@
+import { getConnection } from "../database/connection.js";
+import sql from 'mssql';
+import bcrypt from 'bcryptjs';
+
+export const createEstudiante = async (req, res) => {
+    try {
+        const {
+            nombre,
+            apellido,
+            correo,
+            contrasena,
+            facultad,
+            id_carrera,
+            id_materia
+        } = req.body;
+
+        const requiredFields = [
+            'nombre', 'apellido', 'correo',
+            'contrasena', 'facultad',
+            'id_carrera', 'id_materia'
+        ];
+
+        const missingFields = requiredFields.filter(field => !req.body[field]);
+        if (missingFields.length > 0) {
+            return res.status(400).json({
+                message: `Campos faltantes: ${missingFields.join(', ')}`
+            });
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(correo)) {
+            return res.status(400).json({
+                message: "Formato de correo inválido"
+            });
+        }
+
+        const pool = await getConnection();
+
+        const emailCheck = await pool.request()
+            .input('correo', sql.VarChar(100), correo)
+            .query('SELECT 1 FROM Estudiantes WHERE correo = @correo');
+
+        if (emailCheck.recordset.length > 0) {
+            return res.status(409).json({
+                message: "El correo ya está registrado"
+            });
+        }
+
+        const carreraExists = await pool.request()
+            .input('id_carrera', sql.Int, id_carrera)
+            .query('SELECT 1 FROM Carreras WHERE id_carrera = @id_carrera');
+
+        if (!carreraExists.recordset.length) {
+            return res.status(404).json({
+                message: "Carrera no encontrada"
+            });
+        }
+
+        const materiaExists = await pool.request()
+            .input('id_materia', sql.Int, id_materia)
+            .query('SELECT 1 FROM Materias WHERE id_materia = @id_materia');
+
+        if (!materiaExists.recordset.length) {
+            return res.status(404).json({
+                message: "Materia no encontrada"
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(contrasena, 10);
+
+        const result = await pool.request()
+            .input('nombre', sql.VarChar(100), nombre)
+            .input('apellido', sql.VarChar(100), apellido)
+            .input('correo', sql.VarChar(100), correo)
+            .input('contrasena', sql.VarChar(100), hashedPassword)
+            .input('facultad', sql.VarChar(100), facultad)
+            .input('id_carrera', sql.Int, id_carrera)
+            .input('id_materia', sql.Int, id_materia)
+            .query(`
+                INSERT INTO Estudiantes 
+                    (nombre, apellido, correo, contrasena, facultad, id_carrera, id_materia)
+                OUTPUT INSERTED.id_estudiante
+                VALUES 
+                    (@nombre, @apellido, @correo, @contrasena, @facultad, @id_carrera, @id_materia)
+            `);
+
+        res.status(201).json({
+            id_estudiante: result.recordset[0].id_estudiante,
+            message: "Estudiante registrado exitosamente"
+        });
+
+    } catch (error) {
+        console.error('Error en createEstudiante:', error);
+
+        const statusCode = error.number === 2627 ? 409 : 500;
+        const message = error.number === 2627
+            ? "Conflicto: El correo ya está registrado"
+            : "Error interno del servidor";
+
+        res.status(statusCode).json({
+            message,
+            error: error.message,
+            operation: "CREATE_ESTUDIANTE"
+        });
+    }
+};
+
+export const createSolicitudEstudiante = async (req, res) => {
+    let transaction;
+    let transactionStarted = false;
+
+    try {
+        const {
+            id_estudiante,
+            id_carrera,
+            id_materia,
+            fecha_hora_inicio,
+            fecha_hora_fin,
+            numero_estudiantes,
+            tamano_grupo = 3,
+            observaciones,
+            insumos
+        } = req.body;
+
+        const requiredFields = [
+            'id_estudiante', 'id_carrera', 'id_materia',
+            'fecha_hora_inicio', 'numero_estudiantes', 'insumos'
+        ];
+
+        const missingFields = requiredFields.filter(field => !req.body[field]);
+        if (missingFields.length > 0) {
+            return res.status(400).json({
+                message: `Campos faltantes: ${missingFields.join(', ')}`
+            });
+        }
+
+        if (numero_estudiantes <= 0 || tamano_grupo <= 0) {
+            return res.status(400).json({
+                message: "Número de estudiantes y tamaño de grupo deben ser > 0"
+            });
+        }
+
+        const pool = await getConnection();
+        transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        transactionStarted = true;
+
+        const estudianteExists = await new sql.Request(transaction)
+            .input('id_estudiante', sql.Int, id_estudiante)
+            .query('SELECT 1 FROM Estudiantes WHERE id_estudiante = @id_estudiante');
+
+        if (!estudianteExists.recordset.length) {
+            await transaction.rollback();
+            return res.status(404).json({ message: "Estudiante no registrado" });
+        }
+
+        const carreraExists = await new sql.Request(transaction)
+            .input('id_carrera', sql.Int, id_carrera)
+            .query('SELECT 1 FROM Carreras WHERE id_carrera = @id_carrera');
+
+        const materiaExists = await new sql.Request(transaction)
+            .input('id_materia', sql.Int, id_materia)
+            .query('SELECT 1 FROM Materias WHERE id_materia = @id_materia');
+
+        if (!carreraExists.recordset.length || !materiaExists.recordset.length) {
+            await transaction.rollback();
+            return res.status(404).json({
+                message: "Carrera o materia no encontrada"
+            });
+        }
+
+        const numero_grupos = Math.ceil(numero_estudiantes / tamano_grupo);
+        if (numero_grupos > 50) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "Máximo 50 grupos permitidos",
+                calculado: numero_grupos
+            });
+        }
+
+        const solicitudResult = await new sql.Request(transaction)
+            .input('id_estudiante', sql.Int, id_estudiante)
+            .input('id_carrera', sql.Int, id_carrera)
+            .input('id_materia', sql.Int, id_materia)
+            .input('fecha_hora_inicio', sql.DateTime, new Date(fecha_hora_inicio))
+            .input('fecha_hora_fin', sql.DateTime, fecha_hora_fin ? new Date(fecha_hora_fin) : null)
+            .input('numero_estudiantes', sql.Int, numero_estudiantes)
+            .input('tamano_grupo', sql.Int, tamano_grupo)
+            .input('numero_grupos', sql.Int, numero_grupos)
+            .input('observaciones', sql.Text, observaciones)
+            .query(`
+                INSERT INTO SolicitudesEstudiantes (
+                    id_estudiante, id_carrera, id_materia,
+                    fecha_hora_inicio, fecha_hora_fin, numero_estudiantes,
+                    tamano_grupo, numero_grupos, observaciones
+                )
+                OUTPUT INSERTED.id_solicitud
+                VALUES (
+                    @id_estudiante, @id_carrera, @id_materia,
+                    @fecha_hora_inicio, @fecha_hora_fin, @numero_estudiantes,
+                    @tamano_grupo, @numero_grupos, @observaciones
+                )
+            `);
+
+        const id_solicitud = solicitudResult.recordset[0].id_solicitud;
+
+        for (const insumo of insumos) {
+            if (!insumo.id_insumo || !insumo.cantidad_por_grupo) {
+                await transaction.rollback();
+                return res.status(400).json({
+                    message: "Formato de insumo inválido: id_insumo y cantidad_por_grupo requeridos"
+                });
+            }
+
+            const cantidad_total = insumo.cantidad_por_grupo * numero_grupos;
+
+            const insumoExists = await new sql.Request(transaction)
+                .input('id_insumo', sql.Int, insumo.id_insumo)
+                .query('SELECT 1 FROM Insumos WHERE id_insumo = @id_insumo');
+
+            if (!insumoExists.recordset.length) {
+                await transaction.rollback();
+                return res.status(404).json({
+                    message: `Insumo ${insumo.id_insumo} no registrado`
+                });
+            }
+
+            await new sql.Request(transaction)
+                .input('id_solicitud', sql.Int, id_solicitud)
+                .input('id_insumo', sql.Int, insumo.id_insumo)
+                .input('cantidad_por_grupo', sql.Int, insumo.cantidad_por_grupo)
+                .input('cantidad_total', sql.Int, cantidad_total)
+                .query(`
+                    INSERT INTO DetalleSolicitudEstudiante
+                        (id_solicitud, id_insumo, cantidad_por_grupo, cantidad_total)
+                    VALUES (@id_solicitud, @id_insumo, @cantidad_por_grupo, @cantidad_total)
+                `);
+        }
+
+        await transaction.commit();
+
+        res.status(201).json({
+            id_solicitud,
+            message: "Solicitud estudiantil creada exitosamente",
+            detalle: {
+                insumos_registrados: insumos.length,
+                grupos_creados: numero_grupos
+            }
+        });
+
+    } catch (error) {
+        if (transactionStarted && transaction) await transaction.rollback();
+
+        console.error('Error en createSolicitudEstudiante:', error);
+        const statusCode = error.number === 2627 ? 409 : 500;
+        res.status(statusCode).json({
+            message: error.number === 2627
+                ? "Conflicto: Posible duplicidad"
+                : "Error interno del servidor",
+            error: error.message,
+            operation: "CREATE_SOLICITUD_ESTUDIANTE"
+        });
+    }
+};
+
+export const getSolicitudesEstudiante = async (req, res) => {
+    try {
+        const { id_estudiante } = req.query;
+        const pool = await getConnection();
+
+        let query = `
+            SELECT 
+                s.*, 
+                c.nombre as carrera_nombre,
+                m.nombre as materia_nombre,
+                e.nombre + ' ' + e.apellido as estudiante_nombre
+            FROM SolicitudesEstudiantes s
+            JOIN Carreras c ON s.id_carrera = c.id_carrera
+            JOIN Materias m ON s.id_materia = m.id_materia
+            JOIN Estudiantes e ON s.id_estudiante = e.id_estudiante
+        `;
+
+        const request = pool.request();
+        if (id_estudiante) {
+            query += " WHERE s.id_estudiante = @id_estudiante";
+            request.input('id_estudiante', sql.Int, id_estudiante);
+        }
+
+        const result = await request.query(query);
+        res.json(result.recordset);
+
+    } catch (error) {
+        console.error('Error al obtener solicitudes:', error);
+        res.status(500).json({
+            message: "Error al obtener solicitudes",
+            error: error.message
+        });
+    }
+};
+
+export const getSolicitudEstudianteById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getConnection();
+
+        const solicitud = await pool.request()
+            .input('id', sql.Int, id)
+            .query(`
+                SELECT 
+                    s.*,
+                    c.nombre as carrera_nombre,
+                    m.nombre as materia_nombre,
+                    e.nombre + ' ' + e.apellido as estudiante_nombre
+                FROM SolicitudesEstudiantes s
+                JOIN Carreras c ON s.id_carrera = c.id_carrera
+                JOIN Materias m ON s.id_materia = m.id_materia
+                JOIN Estudiantes e ON s.id_estudiante = e.id_estudiante
+                WHERE s.id_solicitud = @id
+            `);
+
+        if (solicitud.recordset.length === 0) {
+            return res.status(404).json({ message: "Solicitud no encontrada" });
+        }
+
+        const detalles = await pool.request()
+            .input('id', sql.Int, id)
+            .query(`
+                SELECT 
+                    d.*, 
+                    i.nombre as insumo_nombre,
+                    i.unidad_medida
+                FROM DetalleSolicitudEstudiante d
+                JOIN Insumos i ON d.id_insumo = i.id_insumo
+                WHERE d.id_solicitud = @id
+            `);
+
+        res.json({
+            ...solicitud.recordset[0],
+            insumos: detalles.recordset
+        });
+
+    } catch (error) {
+        console.error('Error al obtener solicitud:', error);
+        res.status(500).json({
+            message: "Error al obtener solicitud",
+            error: error.message
+        });
+    }
+};
