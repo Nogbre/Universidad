@@ -316,3 +316,172 @@ export const getSolicitudEstudianteById = async (req, res) => {
         });
     }
 };
+
+export const updateEstadoSolicitudEstudiante = async (req, res) => {
+    const pool = await getConnection();
+    const transaction = new sql.Transaction(pool);
+    let transactionStarted = false;
+
+    try {
+        const { id } = req.params;
+        const { estado } = req.body;
+
+        if (isNaN(id)) {
+            return res.status(400).json({
+                message: "ID inválido",
+                details: "El ID debe ser un número"
+            });
+        }
+        const solicitudId = parseInt(id, 10);
+
+        const estadosPermitidos = ['Pendiente', 'Aprobada', 'Rechazada', 'Completada'];
+        if (!estadosPermitidos.includes(estado)) {
+            return res.status(400).json({
+                message: "Estado inválido",
+                details: `Estados permitidos: ${estadosPermitidos.join(', ')}`
+            });
+        }
+
+        await transaction.begin();
+        transactionStarted = true;
+
+        const solicitud = await new sql.Request(transaction)
+            .input('id', sql.Int, solicitudId)
+            .query(`
+                SELECT estado 
+                FROM SolicitudesEstudiantes 
+                WHERE id_solicitud = @id
+            `);
+
+        if (!solicitud.recordset.length) {
+            await transaction.rollback();
+            return res.status(404).json({ message: "Solicitud no encontrada" });
+        }
+
+        const estadoActual = solicitud.recordset[0].estado;
+
+        const transicionesValidas = {
+            Pendiente: ['Aprobada', 'Rechazada'],
+            Aprobada: ['Completada', 'Rechazada'],
+            Completada: [],
+            Rechazada: []
+        };
+
+        if (!transicionesValidas[estadoActual].includes(estado)) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "Transición inválida",
+                details: `De ${estadoActual} a ${estado} no permitido`
+            });
+        }
+
+        if (estado === 'Aprobada') {
+            const detalles = await new sql.Request(transaction)
+                .input('id', sql.Int, solicitudId)
+                .query(`
+                    SELECT d.id_insumo, d.cantidad_solicitada, i.stock_actual 
+                    FROM DetalleSolicitudEstudiante d
+                    JOIN Insumos i ON d.id_insumo = i.id_insumo
+                    WHERE d.id_solicitud = @id
+                `);
+
+            for (const detalle of detalles.recordset) {
+                if (detalle.stock_actual < detalle.cantidad_solicitada) {
+                    await transaction.rollback();
+                    return res.status(400).json({
+                        message: `Stock insuficiente: ${detalle.id_insumo}`,
+                        insumo: detalle.id_insumo,
+                        stock: detalle.stock_actual,
+                        requerido: detalle.cantidad_solicitada
+                    });
+                }
+
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, detalle.cantidad_solicitada)
+                    .query(`
+                        UPDATE Insumos 
+                        SET stock_actual = stock_actual - @cantidad 
+                        WHERE id_insumo = @id_insumo
+                    `);
+
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, detalle.cantidad_solicitada)
+                    .input('id_solicitud', sql.Int, solicitudId)
+                    .input('responsable', sql.VarChar(100), 'Sistema')
+                    .query(`
+                        INSERT INTO MovimientosInventario (
+                            id_insumo, tipo_movimiento, cantidad, 
+                            responsable, id_solicitud
+                        ) VALUES (
+                            @id_insumo, 'PRESTAMO_ESTUDIANTE', @cantidad,
+                            @responsable, @id_solicitud
+                        )
+                    `);
+            }
+        }
+
+        if (estado === 'Completada') {
+            const detalles = await new sql.Request(transaction)
+                .input('id', sql.Int, solicitudId)
+                .query(`
+                    SELECT id_insumo, cantidad_solicitada 
+                    FROM DetalleSolicitudEstudiante 
+                    WHERE id_solicitud = @id
+                `);
+
+            for (const detalle of detalles.recordset) {
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, detalle.cantidad_solicitada)
+                    .query(`
+                        UPDATE Insumos 
+                        SET stock_actual = stock_actual + @cantidad 
+                        WHERE id_insumo = @id_insumo
+                    `);
+
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, detalle.cantidad_solicitada)
+                    .input('id_solicitud', sql.Int, solicitudId)
+                    .input('responsable', sql.VarChar(100), 'Sistema')
+                    .query(`
+                        INSERT INTO MovimientosInventario (
+                            id_insumo, tipo_movimiento, cantidad,
+                            responsable, id_solicitud
+                        ) VALUES (
+                            @id_insumo, 'DEVOLUCION_ESTUDIANTE', @cantidad,
+                            @responsable, @id_solicitud
+                        )
+                    `);
+            }
+        }
+
+        await new sql.Request(transaction)
+            .input('id', sql.Int, solicitudId)
+            .input('estado', sql.VarChar(20), estado)
+            .query(`
+                UPDATE SolicitudesEstudiantes 
+                SET estado = @estado 
+                WHERE id_solicitud = @id
+            `);
+
+        await transaction.commit();
+
+        res.json({
+            message: "Estado actualizado",
+            nuevo_estado: estado,
+            estado_anterior: estadoActual
+        });
+
+    } catch (error) {
+        if (transactionStarted) await transaction.rollback();
+        console.error('Error actualizando estado:', error);
+        res.status(500).json({
+            message: "Error en el proceso",
+            details: error.message,
+            operation: "UPDATE_ESTADO_SOLICITUD_ESTUDIANTE"
+        });
+    }
+};
