@@ -108,8 +108,8 @@ export const createEstudiante = async (req, res) => {
 export const createSolicitudEstudiante = async (req, res) => {
     let transaction;
     try {
-        const { id } = req.user;
         const {
+            id_estudiante,
             id_materia,
             fecha_hora_inicio,
             fecha_hora_fin,
@@ -117,7 +117,13 @@ export const createSolicitudEstudiante = async (req, res) => {
             insumos
         } = req.body;
 
-        const requiredFields = ['id_materia', 'fecha_hora_inicio', 'insumos'];
+        const requiredFields = [
+            'id_estudiante',
+            'id_materia',
+            'fecha_hora_inicio',
+            'insumos'
+        ];
+
         const missingFields = requiredFields.filter(field => !req.body[field]);
         if (missingFields.length > 0) {
             return res.status(400).json({
@@ -129,22 +135,24 @@ export const createSolicitudEstudiante = async (req, res) => {
         transaction = new sql.Transaction(pool);
         await transaction.begin();
 
-        // Obtener datos del estudiante desde BD
         const estudiante = await new sql.Request(transaction)
-            .input('id', sql.Int, id)
+            .input('id_estudiante', sql.Int, id_estudiante)
             .query(`
-                SELECT id_carrera, id_materia 
-                FROM Estudiantes 
-                WHERE id_estudiante = @id
+                SELECT id_carrera
+                FROM Estudiantes
+                WHERE id_estudiante = @id_estudiante
             `);
 
         if (!estudiante.recordset.length) {
             await transaction.rollback();
-            return res.status(404).json({ message: "Estudiante no encontrado" });
+            return res.status(404).json({
+                message: "Estudiante no encontrado",
+                details: `ID: ${id_estudiante} no registrado`
+            });
         }
 
         const solicitudResult = await new sql.Request(transaction)
-            .input('id_estudiante', sql.Int, id)
+            .input('id_estudiante', sql.Int, id_estudiante)
             .input('id_carrera', sql.Int, estudiante.recordset[0].id_carrera)
             .input('id_materia', sql.Int, id_materia)
             .input('fecha_hora_inicio', sql.DateTime, new Date(fecha_hora_inicio))
@@ -155,11 +163,11 @@ export const createSolicitudEstudiante = async (req, res) => {
                     id_estudiante, id_carrera, id_materia,
                     fecha_hora_inicio, fecha_hora_fin, observaciones
                 )
-                OUTPUT INSERTED.id_solicitud
+                    OUTPUT INSERTED.id_solicitud
                 VALUES (
                     @id_estudiante, @id_carrera, @id_materia,
                     @fecha_hora_inicio, @fecha_hora_fin, @observaciones
-                )
+                    )
             `);
 
         const id_solicitud = solicitudResult.recordset[0].id_solicitud;
@@ -168,18 +176,20 @@ export const createSolicitudEstudiante = async (req, res) => {
             if (!insumo.id_insumo || !insumo.cantidad_solicitada) {
                 await transaction.rollback();
                 return res.status(400).json({
-                    message: "Formato inválido: id_insumo y cantidad_solicitada requeridos"
+                    message: "Formato de insumo inválido",
+                    details: "Cada insumo debe tener id_insumo y cantidad_solicitada"
                 });
             }
 
             const insumoExists = await new sql.Request(transaction)
                 .input('id_insumo', sql.Int, insumo.id_insumo)
-                .query('SELECT stock_actual FROM Insumos WHERE id_insumo = @id_insumo');
+                .query('SELECT 1 FROM Insumos WHERE id_insumo = @id_insumo');
 
             if (!insumoExists.recordset.length) {
                 await transaction.rollback();
                 return res.status(404).json({
-                    message: `Insumo ${insumo.id_insumo} no registrado`
+                    message: "Insumo no encontrado",
+                    id_insumo: insumo.id_insumo
                 });
             }
 
@@ -195,16 +205,30 @@ export const createSolicitudEstudiante = async (req, res) => {
         }
 
         await transaction.commit();
+
         res.status(201).json({
             id_solicitud,
-            message: "Solicitud individual creada",
-            insumos_solicitados: insumos.length
+            message: "Solicitud creada exitosamente",
+            detalles: {
+                insumos_solicitados: insumos.length,
+                estudiante_id: id_estudiante
+            }
         });
 
     } catch (error) {
         if (transaction) await transaction.rollback();
-        console.error('Error:', error);
-        res.status(500).json({ message: "Error en el servidor", error: error.message });
+        console.error('Error en createSolicitudEstudiante:', error);
+
+        const statusCode = error.number === 2627 ? 409 : 500;
+        const message = error.number === 2627
+            ? "Conflicto: Solicitud duplicada"
+            : "Error interno del servidor";
+
+        res.status(statusCode).json({
+            message,
+            error: error.message,
+            operation: "CREATE_SOLICITUD_ESTUDIANTE"
+        });
     }
 };
 
