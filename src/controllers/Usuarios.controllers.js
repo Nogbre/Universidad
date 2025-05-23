@@ -1,6 +1,5 @@
 import { getConnection } from '../database/connection.js';
 import sql from 'mssql';
-import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
 const saltRounds = 10;
