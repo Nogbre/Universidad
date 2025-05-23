@@ -43,7 +43,7 @@ app.use(InsumosRoutes);
 app.use(AlertasRoutes);
 app.use(SolicitudesRoutes);
 app.use(docentesRoutes);
-app.use(usuariosRoutes);
+app.use('/api', usuariosRoutes);
 app.use(carrerasRoutes);
 app.use(semestresRoutes);
 app.use(materiasRoutes);
