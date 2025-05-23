@@ -56,5 +56,6 @@ app.use(detalleSolicitudUsoRoutes);
 app.use(insumosPorPracticaRoutes);
 app.use('/movimientos-inventario', movimientosInventarioRoutes);
 app.use(estudiantesRoutes);
+app.use(usuariosRoutes);
 
 export default app;
