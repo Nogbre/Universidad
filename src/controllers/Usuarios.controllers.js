@@ -25,8 +25,8 @@ export const getAllUsersConsolidated = async (req, res) => {
                 el.correo as correo_encargado,
                 el.contrasena as contrasena_encargado
             FROM Docentes d
-            LEFT JOIN Estudiantes e ON d.id_docente = e.id_docente
-            LEFT JOIN EncargadoLaboratorio el ON d.id_docente = el.id_docente
+            LEFT JOIN Estudiantes e ON e.id_estudiante = d.id_docente
+            LEFT JOIN EncargadoLaboratorio el ON el.id_encargado = d.id_docente
         `);
         
         // Transformar los resultados en una estructura más limpia
