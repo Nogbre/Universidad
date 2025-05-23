@@ -7,7 +7,7 @@ import {
     deleteDocente,
     createEstudiante,
     getAllUsers
-} from './controllers.js';
+} from '../controllers/Usuarios.controllers.js';
 
 const router = express.Router();
 
