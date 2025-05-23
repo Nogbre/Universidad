@@ -57,3 +57,62 @@ export const getAllUsersConsolidated = async (req, res) => {
     }
 };
 
+export const getUsersByType = async (req, res) => {
+    try {
+        const { tipo } = req.params;
+        const pool = await getConnection();
+        let query = '';
+        
+        switch(tipo.toLowerCase()) {
+            case 'docentes':
+                query = `
+                    SELECT 
+                        id_docente as id,
+                        nombre,
+                        apellido,
+                        correo,
+                        id_carrera
+                    FROM Docentes
+                `;
+                break;
+            
+            case 'estudiantes':
+                query = `
+                    SELECT 
+                        id_estudiante as id,
+                        nombre,
+                        apellido,
+                        correo,
+                        facultad,
+                        id_materia
+                    FROM Estudiantes
+                `;
+                break;
+            
+            case 'encargados':
+                query = `
+                    SELECT 
+                        id_encargado as id,
+                        nombre,
+                        apellido,
+                        correo
+                    FROM EncargadoLaboratorio
+                `;
+                break;
+            
+            default:
+                return res.status(400).json({ 
+                    message: 'Tipo de usuario no válido. Use: docentes, estudiantes o encargados' 
+                });
+        }
+
+        const result = await pool.request().query(query);
+        res.json(result.recordset);
+
+    } catch (error) {
+        res.status(500).json({ 
+            message: `Error al obtener usuarios de tipo ${req.params.tipo}`, 
+            error: error.message 
+        });
+    }
+};
