@@ -1,19 +1,17 @@
-// import { Router } from 'express';
-// import { login } from '../controllers/Usuarios.controllers.js';
-// import { body } from 'express-validator';
-// import { validarCampos } from '../middlewares/validarCampos.js';
+import express from 'express';
+import {
+    createDocente,
+    getDocentes,
+    getDocenteById,
+    updateDocente,
+    deleteDocente,
+    createEstudiante,
+    getAllUsers
+} from './controllers.js';
 
-// const router = Router();
+const router = express.Router();
 
-
-// const validarLogin = [
-//   body('correo').isEmail().withMessage('El correo no es válido'),
-//   body('contraseña').notEmpty().withMessage('La contraseña es obligatoria'),
-//   validarCampos
-// ];
-
-// router.post('/login', validarLogin, login);
-
+router.get('/usuarios', getAllUsers);
 
 
-// export default router;
+export default router;
