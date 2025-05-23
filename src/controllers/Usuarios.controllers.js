@@ -4,8 +4,60 @@ import sql from 'mssql';
 export const getAllUsersConsolidated = async (req, res) => {
     try {
         const pool = await getConnection();
-        const result = await pool.request().query('SELECT * FROM Docentes, Estudiantes, EncargadoLaboratorio');
-        res.json(result.recordset);
+        const result = await pool.request().query(`
+            SELECT 
+                d.id_docente,
+                d.nombre as nombre_docente,
+                d.apellido as apellido_docente,
+                d.correo as correo_docente,
+                d.contrasena as contrasena_docente,
+                d.id_carrera,
+                e.id_estudiante,
+                e.nombre as nombre_estudiante,
+                e.apellido as apellido_estudiante,
+                e.correo as correo_estudiante,
+                e.contrasena as contrasena_estudiante,
+                e.facultad,
+                e.id_materia,
+                el.id_encargado,
+                el.nombre as nombre_encargado,
+                el.apellido as apellido_encargado,
+                el.correo as correo_encargado,
+                el.contrasena as contrasena_encargado
+            FROM Docentes d
+            LEFT JOIN Estudiantes e ON d.id_docente = e.id_docente
+            LEFT JOIN EncargadoLaboratorio el ON d.id_docente = el.id_docente
+        `);
+        
+        // Transformar los resultados en una estructura más limpia
+        const usuariosConsolidados = result.recordset.map(record => ({
+            docente: {
+                id: record.id_docente,
+                nombre: record.nombre_docente,
+                apellido: record.apellido_docente,
+                correo: record.correo_docente,
+                contrasena: record.contrasena_docente,
+                id_carrera: record.id_carrera
+            },
+            estudiante: record.id_estudiante ? {
+                id: record.id_estudiante,
+                nombre: record.nombre_estudiante,
+                apellido: record.apellido_estudiante,
+                correo: record.correo_estudiante,
+                contrasena: record.contrasena_estudiante,
+                facultad: record.facultad,
+                id_materia: record.id_materia
+            } : null,
+            encargado: record.id_encargado ? {
+                id: record.id_encargado,
+                nombre: record.nombre_encargado,
+                apellido: record.apellido_encargado,
+                correo: record.correo_encargado,
+                contrasena: record.contrasena_encargado
+            } : null
+        }));
+
+        res.json(usuariosConsolidados);
     } catch (error) {
         res.status(500).json({ message: 'Error al obtener usuarios consolidados', error: error.message });
     }
