@@ -73,6 +73,18 @@ export const getUsersByType = async (req, res) => {
                     correo
                 FROM EncargadoLaboratorio
             `;
+
+            const encargadosResult = result.recordset.map(record => ({
+                docente: {
+                    id: record.id_docente,
+                    nombre: record.nombre_docente,
+                    apellido: record.apellido_docente,
+                    correo: record.correo_docente,
+                    id_carrera: record.id_carrera
+                },
+            }));
+
+            res.json(encargadosResult);
         } else if(tipoVar === 'estudiantes'){
             query = `
                 SELECT 
