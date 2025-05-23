@@ -36,12 +36,14 @@ import detalleSolicitudUsoRoutes from "./routes/detalleSolicitudUso.routes.js";
 import insumosPorPracticaRoutes from "./routes/insumosPorPractica.routes.js";
 import movimientosInventarioRoutes from "./routes/movimientosInventario.routes.js";
 import estudiantesRoutes from "./routes/estudiantes.routes.js";
+import usuariosRoutes from "./routes/Usuarios.routes.js";
 
 app.use('/auth', authRoutes);
 app.use(InsumosRoutes);
 app.use(AlertasRoutes);
 app.use(SolicitudesRoutes);
 app.use(docentesRoutes);
+app.use(usuariosRoutes);
 app.use(carrerasRoutes);
 app.use(semestresRoutes);
 app.use(materiasRoutes);
