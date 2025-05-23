@@ -8,21 +8,18 @@ export const getAllUsers = async (req, res) => {
     try {
         const pool = await getConnection();
 
-        const docentesResult = await pool.request()
-            .query(`
+        const [docentes, estudiantes] = await Promise.all([
+            pool.request().query(`
                 SELECT 
                     id_docente as id,
                     nombre,
                     apellido,
                     correo,
                     id_carrera,
-                    'docente' as tipo,
-                    creado_en
+                    'docente' as tipo
                 FROM Docentes
-            `);
-
-        const estudiantesResult = await pool.request()
-            .query(`
+            `),
+            pool.request().query(`
                 SELECT 
                     id_estudiante as id,
                     nombre,
@@ -31,27 +28,18 @@ export const getAllUsers = async (req, res) => {
                     facultad,
                     id_carrera,
                     id_materia,
-                    'estudiante' as tipo,
-                    creado_en
+                    'estudiante' as tipo
                 FROM Estudiantes
-            `);
+            `)
+        ]);
 
-        const usuarios = [
-            ...docentesResult.recordset.map(d => ({
-                ...d,
-                creado_en: new Date(d.creado_en).toISOString()
-            })),
-            ...estudiantesResult.recordset.map(e => ({
-                ...e,
-                creado_en: new Date(e.creado_en).toISOString()
-            }))
-        ];
+        const result = {
+            docentes: docentes.recordset,
+            estudiantes: estudiantes.recordset,
+            total: docentes.recordset.length + estudiantes.recordset.length
+        };
 
-        res.status(200).json({
-            success: true,
-            count: usuarios.length,
-            data: usuarios
-        });
+        res.status(200).json(result);
 
     } catch (error) {
         console.error('Error en getAllUsers:', error);
