@@ -62,9 +62,9 @@ export const getUsersByType = async (req, res) => {
         const { tipo } = req.params;
         const pool = await getConnection();
         let query = '';
-        
+
         const tipoVar = tipo.toLowerCase();
-        if(tipoVar === 'encargados'){
+        if (tipoVar === 'encargados') {
             query = `
                 SELECT 
                     id_encargado as id,
@@ -73,19 +73,7 @@ export const getUsersByType = async (req, res) => {
                     correo
                 FROM EncargadoLaboratorio
             `;
-
-            const encargadosResult = result.recordset.map(record => ({
-                docente: {
-                    id: record.id_docente,
-                    nombre: record.nombre_docente,
-                    apellido: record.apellido_docente,
-                    correo: record.correo_docente,
-                    id_carrera: record.id_carrera
-                },
-            }));
-
-            res.json(encargadosResult);
-        } else if(tipoVar === 'estudiantes'){
+        } else if (tipoVar === 'estudiantes') {
             query = `
                 SELECT 
                     id_estudiante as id,
@@ -96,7 +84,7 @@ export const getUsersByType = async (req, res) => {
                     id_materia
                 FROM Estudiantes
             `;
-        } else if(tipoVar === 'docentes'){
+        } else if (tipoVar === 'docentes') {
             query = `
                 SELECT 
                     id_docente as id,
@@ -111,48 +99,10 @@ export const getUsersByType = async (req, res) => {
                 message: 'Tipo de usuario no válido. Use: docentes, estudiantes o encargados' 
             });
         }
-        // switch(tipo.toLowerCase()) {
-        //     case 'docentes':
-        //         query = `
-        //             SELECT 
-        //                 id_docente as id,
-        //                 nombre,
-        //                 apellido,
-        //                 correo,
-        //                 id_carrera
-        //             FROM Docentes
-        //         `;
-        //         break;
-            
-        //     case 'estudiantes':
-        //         query = `
-        //             SELECT 
-        //                 id_estudiante as id,
-        //                 nombre,
-        //                 apellido,
-        //                 correo,
-        //                 facultad,
-        //                 id_materia
-        //             FROM Estudiantes
-        //         `;
-        //         break;
-            
-        //     case 'encargados':
-        //         query = `
-        //             SELECT 
-        //                 id_encargado as id,
-        //                 nombre,
-        //                 apellido,
-        //                 correo
-        //             FROM EncargadoLaboratorio
-        //         `;
-        //         break;
-            
-        //     default:
-        //         return res.status(400).json({ 
-        //             message: 'Tipo de usuario no válido. Use: docentes, estudiantes o encargados' 
-        //         });
-        // }
+
+        // ✅ Ejecutar la consulta una sola vez después de definir el query
+        const result = await pool.request().query(query);
+        res.json(result.recordset);
 
     } catch (error) {
         res.status(500).json({ 
