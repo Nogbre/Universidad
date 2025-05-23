@@ -154,8 +154,6 @@ export const getUsersByType = async (req, res) => {
         //         });
         // }
 
-        const result = await pool.request().query(query);
-        res.json(result.recordset);
     } catch (error) {
         res.status(500).json({ 
             message: `Error al obtener usuarios de tipo ${req.params.tipo}`, 
