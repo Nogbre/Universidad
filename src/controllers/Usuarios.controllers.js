@@ -10,20 +10,17 @@ export const getAllUsersConsolidated = async (req, res) => {
                 d.nombre as nombre_docente,
                 d.apellido as apellido_docente,
                 d.correo as correo_docente,
-                d.contrasena as contrasena_docente,
                 d.id_carrera,
                 e.id_estudiante,
                 e.nombre as nombre_estudiante,
                 e.apellido as apellido_estudiante,
                 e.correo as correo_estudiante,
-                e.contrasena as contrasena_estudiante,
                 e.facultad,
                 e.id_materia,
                 el.id_encargado,
                 el.nombre as nombre_encargado,
                 el.apellido as apellido_encargado,
-                el.correo as correo_encargado,
-                el.contrasena as contrasena_encargado
+                el.correo as correo_encargado
             FROM Docentes d
             LEFT JOIN Estudiantes e ON e.id_estudiante = d.id_docente
             LEFT JOIN EncargadoLaboratorio el ON el.id_encargado = d.id_docente
@@ -36,7 +33,6 @@ export const getAllUsersConsolidated = async (req, res) => {
                 nombre: record.nombre_docente,
                 apellido: record.apellido_docente,
                 correo: record.correo_docente,
-                contrasena: record.contrasena_docente,
                 id_carrera: record.id_carrera
             },
             estudiante: record.id_estudiante ? {
@@ -44,7 +40,6 @@ export const getAllUsersConsolidated = async (req, res) => {
                 nombre: record.nombre_estudiante,
                 apellido: record.apellido_estudiante,
                 correo: record.correo_estudiante,
-                contrasena: record.contrasena_estudiante,
                 facultad: record.facultad,
                 id_materia: record.id_materia
             } : null,
@@ -53,7 +48,6 @@ export const getAllUsersConsolidated = async (req, res) => {
                 nombre: record.nombre_encargado,
                 apellido: record.apellido_encargado,
                 correo: record.correo_encargado,
-                contrasena: record.contrasena_encargado
             } : null
         }));
 
