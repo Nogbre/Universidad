@@ -75,3 +75,51 @@ export const loginEncargado = async (req, res) => {
         res.status(500).json({ message: "Error al iniciar sesión" });
     }
 };
+
+export const loginEstudiante = async (req, res) => {
+    try {
+        const { correo, contrasena } = req.body;
+
+        if (!correo || !contrasena) {
+            return res.status(400).json({
+                message: "Correo y contraseña son requeridos"
+            });
+        }
+
+        const pool = await getConnection();
+        const result = await pool.request()
+            .input("correo", sql.VarChar(100), correo)
+            .query("SELECT * FROM Estudiantes WHERE correo = @correo");
+
+        if (result.recordset.length === 0) {
+            return res.status(401).json({
+                message: "Credenciales inválidas"
+            });
+        }
+
+        const estudiante = result.recordset[0];
+        const passwordValid = await bcrypt.compare(contrasena, estudiante.contrasena);
+
+        if (!passwordValid) {
+            return res.status(401).json({
+                message: "Credenciales inválidas"
+            });
+        }
+
+        res.json({
+            id_estudiante: estudiante.id_estudiante,
+            nombre: estudiante.nombre,
+            apellido: estudiante.apellido,
+            correo: estudiante.correo,
+            facultad: estudiante.facultad,
+            id_carrera: estudiante.id_carrera
+        });
+
+    } catch (error) {
+        console.error("Error en login estudiante:", error);
+        res.status(500).json({
+            message: "Error en el servidor",
+            error: error.message
+        });
+    }
+};
