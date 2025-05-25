@@ -4,7 +4,7 @@ import {
     getDocentes,
     getDocenteById,
     updateDocente,
-    deleteDocente
+    deleteDocente, asignarAulaDocente, getAulasAsignadas
 } from '../controllers/docentes.controller.js';
 
 const router = Router();
@@ -18,5 +18,9 @@ router.get('/docentes/:id', getDocenteById);
 router.put('/docentes/:id', updateDocente);
 
 router.delete('/docentes/:id', deleteDocente);
+
+router.post('/docentes/:id/asignar-aula', asignarAulaDocente);
+
+router.get('/docentes/:id/aulas', getAulasAsignadas);
 
 export default router;
