@@ -15,6 +15,6 @@ router.post('/estudiantes', createEstudiante);
 router.post('/estudiantes/solicitudes', createSolicitudEstudiante);
 router.get('/estudiantes/solicitudes', getSolicitudesEstudiante);
 router.get('/estudiantes/solicitudes/:id', getSolicitudEstudianteById);
-router.patch('/solicitudes/:id', updateEstadoSolicitudEstudiante);
+router.patch('/estudiantes/solicitudes/:id', updateEstadoSolicitudEstudiante);
 
 export default router;
