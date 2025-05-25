@@ -189,13 +189,16 @@ export const getSolicitudesUso = async (req, res) => {
         const pool = await getConnection();
 
         let query = `
-            SELECT s.*, d.nombre + ' ' + d.apellido as docente_nombre,
-                   p.titulo as practica_titulo, l.nombre as laboratorio_nombre
-            FROM SolicitudesUso s
-                     LEFT JOIN Docentes d ON s.id_docente = d.id_docente
-                     LEFT JOIN Practicas p ON s.id_practica = p.id_practica
-                     LEFT JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
-        `;
+    SELECT s.*, 
+           d.nombre + ' ' + d.apellido as docente_nombre,
+           d.correo as correo_docente,         -- <--- AGREGA ESTA LÍNEA
+           p.titulo as practica_titulo, 
+           l.nombre as laboratorio_nombre
+    FROM SolicitudesUso s
+             LEFT JOIN Docentes d ON s.id_docente = d.id_docente
+             LEFT JOIN Practicas p ON s.id_practica = p.id_practica
+             LEFT JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
+`;
 
         const request = pool.request();
         const conditions = [];
