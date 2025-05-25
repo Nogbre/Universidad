@@ -168,101 +168,76 @@ export const deleteDocente = async (req, res) => {
     }
 };
 
+/*──────────────────────  ASIGNACIÓN / CONSULTA DE AULAS  ─────────────────────*/
+
+/*  Insert o Update (MERGE)  */
 export const asignarAulaDocente = async (req, res) => {
-    let transaction;
-    try {
-        const { id } = req.params;
-        const { id_aula } = req.body;
+  try {
+    const { id }      = req.params;   // id_docente
+    const { id_aula } = req.body;
 
-        if (!id_aula) {
-            return res.status(400).json({ message: "ID de aula requerido" });
-        }
+    if (!id_aula)
+      return res.status(400).json({ message: "id_aula requerido" });
 
-        const pool = await getConnection();
-        transaction = new sql.Transaction(pool);
-        await transaction.begin();
+    const pool = await getConnection();
 
-        const docenteExists = await new sql.Request(transaction)
-            .input('id', sql.Int, id)
-            .query('SELECT 1 FROM Docentes WHERE id_docente = @id');
+    /* verificar existencia docente y aula */
+    const [[docente], [aula]] = await Promise.all([
+      pool.request().input("id",     sql.Int, id)      .query("SELECT 1 FROM Docentes          WHERE id_docente = @id"),
+      pool.request().input("id_aula",sql.Int, id_aula) .query("SELECT 1 FROM aulaLaboratorio   WHERE id_aula    = @id_aula")
+    ]).then(resArr => resArr.map(r => r.recordset));
 
-        if (!docenteExists.recordset.length) {
-            await transaction.rollback();
-            return res.status(404).json({ message: "Docente no encontrado" });
-        }
+    if (!docente) return res.status(404).json({ message: "Docente no encontrado" });
+    if (!aula)    return res.status(404).json({ message: "Aula no encontrada" });
 
-        const aulaExists = await new sql.Request(transaction)
-            .input('id_aula', sql.Int, id_aula)
-            .query('SELECT 1 FROM aulaLaboratorio WHERE id_aula = @id_aula');
+    /* MERGE = upsert */
+    await pool.request()
+      .input("id_docente", sql.Int, id)
+      .input("id_aula",    sql.Int, id_aula)
+      .query(`
+        MERGE DocenteAula AS target
+        USING (SELECT @id_docente AS id_docente) AS src
+             ON target.id_docente = src.id_docente
+        WHEN MATCHED THEN
+             UPDATE SET id_aula = @id_aula
+        WHEN NOT MATCHED THEN
+             INSERT (id_docente, id_aula) VALUES (@id_docente, @id_aula);
+      `);
 
-        if (!aulaExists.recordset.length) {
-            await transaction.rollback();
-            return res.status(404).json({ message: "Aula no encontrada" });
-        }
+    res.json({
+      message:     "Aula asignada/actualizada correctamente",
+      id_docente:  Number(id),
+      id_aula:     Number(id_aula)
+    });
 
-        const asignacionExists = await new sql.Request(transaction)
-            .input('id', sql.Int, id)
-            .input('id_aula', sql.Int, id_aula)
-            .query('SELECT 1 FROM DocenteAula WHERE id_docente = @id AND id_aula = @id_aula');
-
-        if (asignacionExists.recordset.length) {
-            await transaction.rollback();
-            return res.status(409).json({ message: "El docente ya tiene asignada esta aula" });
-        }
-
-        await new sql.Request(transaction)
-            .input('id_docente', sql.Int, id)
-            .input('id_aula', sql.Int, id_aula)
-            .query(`
-                INSERT INTO DocenteAula (id_docente, id_aula)
-                VALUES (@id_docente, @id_aula)
-            `);
-
-        await transaction.commit();
-
-        res.status(201).json({
-            message: "Aula asignada exitosamente",
-            docente_id: id,
-            aula_id: id_aula
-        });
-
-    } catch (error) {
-        if (transaction) await transaction.rollback();
-        console.error('Error al asignar aula:', error);
-
-        const statusCode = error.number === 547 ? 400 : 500;
-        const message = error.number === 547
-            ? "ID de docente o aula inválido"
-            : "Error interno del servidor";
-
-        res.status(statusCode).json({
-            message,
-            error: error.message
-        });
-    }
+  } catch (error) {
+    console.error("Error al asignar aula:", error);
+    res.status(500).json({ message: "Error interno del servidor", error: error.message });
+  }
 };
 
+
+/*  Devuelve todas las aulas asignadas a un docente  */
 export const getAulasAsignadas = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const pool = await getConnection();
+  try {
+    const { id } = req.params;
+    const pool = await getConnection();
+    const result = await pool.request()
+      .input("id", sql.Int, id)
+      .query(`
+        SELECT  a.id_aula,
+                a.nombre_aula,
+                e.nombre + ' ' + e.apellido AS encargado
+        FROM    DocenteAula      da
+        JOIN    aulaLaboratorio  a ON a.id_aula      = da.id_aula
+        JOIN    EncargadoLaboratorio e ON e.id_encargado = a.encargado_id
+        WHERE   da.id_docente = @id
+      `);
 
-        const result = await pool.request()
-            .input('id', sql.Int, id)
-            .query(`
-                SELECT 
-                    a.id_aula,
-                    a.nombre_aula,
-                    e.nombre + ' ' + e.apellido as encargado
-                FROM DocenteAula da
-                JOIN aulaLaboratorio a ON da.id_aula = a.id_aula
-                JOIN EncargadoLaboratorio e ON a.encargado_id = e.id_encargado
-                WHERE da.id_docente = @id
-            `);
+    res.json(result.recordset);
 
-        res.json(result.recordset);
-    } catch (error) {
-        console.error('Error al obtener aulas asignadas:', error);
-        res.status(500).json({ message: "Error al obtener aulas asignadas" });
-    }
+  } catch (error) {
+    console.error("Error al obtener aulas asignadas:", error);
+    res.status(500).json({ message: "Error al obtener aulas asignadas" });
+  }
 };
