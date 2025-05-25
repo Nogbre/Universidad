@@ -3,5 +3,5 @@ import { getAllUsersConsolidated, getUsersByType } from '../controllers/Usuarios
 
 const router = express.Router();
 router.get('/todos', getAllUsersConsolidated);
-router.get('/:tipo', getUsersByType);
+router.get('/tipo/:tipo', getUsersByType);
 export default router;
