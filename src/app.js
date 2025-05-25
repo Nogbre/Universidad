@@ -18,7 +18,6 @@ app.use(cors({
 
 app.use(express.json());
 
-// Importar rutas
 import authRoutes from './routes/auth.routes.js';
 import InsumosRoutes from "./routes/Insumos.routes.js";
 import AlertasRoutes from "./routes/Alertas.routes.js";
@@ -37,6 +36,7 @@ import insumosPorPracticaRoutes from "./routes/insumosPorPractica.routes.js";
 import movimientosInventarioRoutes from "./routes/movimientosInventario.routes.js";
 import estudiantesRoutes from "./routes/estudiantes.routes.js";
 import usuariosRoutes from "./routes/Usuarios.routes.js";
+import aulaLaboratorioRoutes from "./routes/aulaLaboratorio.routes.js";
 
 app.use('/auth', authRoutes);
 app.use(InsumosRoutes);
@@ -57,5 +57,6 @@ app.use(insumosPorPracticaRoutes);
 app.use('/movimientos-inventario', movimientosInventarioRoutes);
 app.use(estudiantesRoutes);
 app.use(usuariosRoutes);
+app.use(aulaLaboratorioRoutes)
 
 export default app;
