@@ -348,8 +348,8 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
         const solicitud = await new sql.Request(transaction)
             .input('id', sql.Int, solicitudId)
             .query(`
-                SELECT estado 
-                FROM SolicitudesEstudiantes 
+                SELECT estado
+                FROM SolicitudesEstudiantes
                 WHERE id_solicitud = @id
             `);
 
@@ -379,20 +379,21 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             const detalles = await new sql.Request(transaction)
                 .input('id', sql.Int, solicitudId)
                 .query(`
-                    SELECT d.id_insumo, d.cantidad_solicitada, i.stock_actual 
+                    SELECT d.id_insumo, d.cantidad_solicitada, i.stock_actual
                     FROM DetalleSolicitudEstudiante d
-                    JOIN Insumos i ON d.id_insumo = i.id_insumo
+                             JOIN Insumos i ON d.id_insumo = i.id_insumo
                     WHERE d.id_solicitud = @id
                 `);
 
             for (const detalle of detalles.recordset) {
+                // Validar stock
                 if (detalle.stock_actual < detalle.cantidad_solicitada) {
                     await transaction.rollback();
                     return res.status(400).json({
-                        message: `Stock insuficiente: ${detalle.id_insumo}`,
+                        message: `Stock insuficiente para insumo ${detalle.id_insumo}`,
                         insumo: detalle.id_insumo,
-                        stock: detalle.stock_actual,
-                        requerido: detalle.cantidad_solicitada
+                        stock_disponible: detalle.stock_actual,
+                        cantidad_requerida: detalle.cantidad_solicitada
                     });
                 }
 
@@ -400,24 +401,30 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
                     .input('id_insumo', sql.Int, detalle.id_insumo)
                     .input('cantidad', sql.Int, detalle.cantidad_solicitada)
                     .query(`
-                        UPDATE Insumos 
-                        SET stock_actual = stock_actual - @cantidad 
+                        UPDATE Insumos
+                        SET stock_actual = stock_actual - @cantidad
                         WHERE id_insumo = @id_insumo
                     `);
 
                 await new sql.Request(transaction)
                     .input('id_insumo', sql.Int, detalle.id_insumo)
                     .input('cantidad', sql.Int, detalle.cantidad_solicitada)
-                    .input('id_solicitud', sql.Int, solicitudId)
+                    .input('id_solicitud_estudiante', sql.Int, solicitudId)
                     .input('responsable', sql.VarChar(100), 'Sistema')
                     .query(`
                         INSERT INTO MovimientosInventario (
-                            id_insumo, tipo_movimiento, cantidad, 
-                            responsable, id_solicitud
+                            id_insumo,
+                            tipo_movimiento,
+                            cantidad,
+                            responsable,
+                            id_solicitud_estudiante
                         ) VALUES (
-                            @id_insumo, 'PRESTAMO_ESTUDIANTE', @cantidad,
-                            @responsable, @id_solicitud
-                        )
+                                     @id_insumo,
+                                     'PRESTAMO_ESTUDIANTE',
+                                     @cantidad,
+                                     @responsable,
+                                     @id_solicitud_estudiante
+                                 )
                     `);
             }
         }
@@ -426,8 +433,8 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             const detalles = await new sql.Request(transaction)
                 .input('id', sql.Int, solicitudId)
                 .query(`
-                    SELECT id_insumo, cantidad_solicitada 
-                    FROM DetalleSolicitudEstudiante 
+                    SELECT id_insumo, cantidad_solicitada
+                    FROM DetalleSolicitudEstudiante
                     WHERE id_solicitud = @id
                 `);
 
@@ -436,24 +443,30 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
                     .input('id_insumo', sql.Int, detalle.id_insumo)
                     .input('cantidad', sql.Int, detalle.cantidad_solicitada)
                     .query(`
-                        UPDATE Insumos 
-                        SET stock_actual = stock_actual + @cantidad 
+                        UPDATE Insumos
+                        SET stock_actual = stock_actual + @cantidad
                         WHERE id_insumo = @id_insumo
                     `);
 
                 await new sql.Request(transaction)
                     .input('id_insumo', sql.Int, detalle.id_insumo)
                     .input('cantidad', sql.Int, detalle.cantidad_solicitada)
-                    .input('id_solicitud', sql.Int, solicitudId)
+                    .input('id_solicitud_estudiante', sql.Int, solicitudId)
                     .input('responsable', sql.VarChar(100), 'Sistema')
                     .query(`
                         INSERT INTO MovimientosInventario (
-                            id_insumo, tipo_movimiento, cantidad,
-                            responsable, id_solicitud
+                            id_insumo,
+                            tipo_movimiento,
+                            cantidad,
+                            responsable,
+                            id_solicitud_estudiante
                         ) VALUES (
-                            @id_insumo, 'DEVOLUCION_ESTUDIANTE', @cantidad,
-                            @responsable, @id_solicitud
-                        )
+                                     @id_insumo,
+                                     'DEVOLUCION_ESTUDIANTE',
+                                     @cantidad,
+                                     @responsable,
+                                     @id_solicitud_estudiante
+                                 )
                     `);
             }
         }
@@ -462,24 +475,32 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             .input('id', sql.Int, solicitudId)
             .input('estado', sql.VarChar(20), estado)
             .query(`
-                UPDATE SolicitudesEstudiantes 
-                SET estado = @estado 
+                UPDATE SolicitudesEstudiantes
+                SET estado = @estado
                 WHERE id_solicitud = @id
             `);
 
         await transaction.commit();
 
         res.json({
-            message: "Estado actualizado",
+            message: "Estado actualizado exitosamente",
             nuevo_estado: estado,
-            estado_anterior: estadoActual
+            estado_anterior: estadoActual,
+            detalles: {
+                insumos_afectados: estado === 'Aprobada' ? detalles.recordset.length : undefined
+            }
         });
 
     } catch (error) {
         if (transactionStarted) await transaction.rollback();
-        console.error('Error actualizando estado:', error);
+        console.error('Error al actualizar estado:', error);
+
+        const mensajeError = error.number === 547
+            ? "Conflicto de integridad referencial"
+            : "Error interno del servidor";
+
         res.status(500).json({
-            message: "Error en el proceso",
+            message: mensajeError,
             details: error.message,
             operation: "UPDATE_ESTADO_SOLICITUD_ESTUDIANTE"
         });
