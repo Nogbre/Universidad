@@ -329,7 +329,7 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
         if (isNaN(id)) {
             return res.status(400).json({
                 message: "ID inválido",
-                details: "El ID debe ser un número"
+                details: "El ID debe ser un número válido"
             });
         }
         const solicitudId = parseInt(id, 10);
@@ -371,7 +371,7 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             await transaction.rollback();
             return res.status(400).json({
                 message: "Transición inválida",
-                details: `De ${estadoActual} a ${estado} no permitido`
+                details: `Transición de ${estadoActual} a ${estado} no permitida`
             });
         }
 
@@ -379,21 +379,25 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             const detalles = await new sql.Request(transaction)
                 .input('id', sql.Int, solicitudId)
                 .query(`
-                    SELECT d.id_insumo, d.cantidad_solicitada, i.stock_actual
+                    SELECT
+                        d.id_insumo,
+                        d.cantidad_solicitada,
+                        i.stock_actual
                     FROM DetalleSolicitudEstudiante d
                              JOIN Insumos i ON d.id_insumo = i.id_insumo
                     WHERE d.id_solicitud = @id
                 `);
 
             for (const detalle of detalles.recordset) {
-                // Validar stock
                 if (detalle.stock_actual < detalle.cantidad_solicitada) {
                     await transaction.rollback();
                     return res.status(400).json({
-                        message: `Stock insuficiente para insumo ${detalle.id_insumo}`,
-                        insumo: detalle.id_insumo,
-                        stock_disponible: detalle.stock_actual,
-                        cantidad_requerida: detalle.cantidad_solicitada
+                        message: "Stock insuficiente",
+                        details: {
+                            insumo: detalle.id_insumo,
+                            stock_disponible: detalle.stock_actual,
+                            cantidad_requerida: detalle.cantidad_solicitada
+                        }
                     });
                 }
 
@@ -414,13 +418,13 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
                     .query(`
                         INSERT INTO MovimientosInventario (
                             id_insumo,
-                            tipo_movimiento,
+                            tipo_movimiento,  
                             cantidad,
                             responsable,
                             id_solicitud_estudiante
                         ) VALUES (
                                      @id_insumo,
-                                     'PRESTAMO_ESTUDIANTE',
+                                     'PRESTAMO_EST',  
                                      @cantidad,
                                      @responsable,
                                      @id_solicitud_estudiante
@@ -433,7 +437,9 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             const detalles = await new sql.Request(transaction)
                 .input('id', sql.Int, solicitudId)
                 .query(`
-                    SELECT id_insumo, cantidad_solicitada
+                    SELECT
+                        id_insumo,
+                        cantidad_solicitada
                     FROM DetalleSolicitudEstudiante
                     WHERE id_solicitud = @id
                 `);
@@ -456,13 +462,13 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
                     .query(`
                         INSERT INTO MovimientosInventario (
                             id_insumo,
-                            tipo_movimiento,
+                            tipo_movimiento,  
                             cantidad,
                             responsable,
                             id_solicitud_estudiante
                         ) VALUES (
                                      @id_insumo,
-                                     'DEVOLUCION_ESTUDIANTE',
+                                     'DEVOLUCION_EST',  
                                      @cantidad,
                                      @responsable,
                                      @id_solicitud_estudiante
@@ -483,24 +489,25 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
         await transaction.commit();
 
         res.json({
-            message: "Estado actualizado exitosamente",
+            message: "Estado actualizado correctamente",
             nuevo_estado: estado,
             estado_anterior: estadoActual,
             detalles: {
-                insumos_afectados: estado === 'Aprobada' ? detalles.recordset.length : undefined
+                insumos_procesados: estado === 'Aprobada' ? detalles.recordset.length : undefined
             }
         });
 
     } catch (error) {
         if (transactionStarted) await transaction.rollback();
-        console.error('Error al actualizar estado:', error);
+        console.error('Error en actualización de estado:', error);
 
-        const mensajeError = error.number === 547
-            ? "Conflicto de integridad referencial"
+        const statusCode = error.number === 547 ? 409 : 500;
+        const errorMessage = error.number === 547
+            ? "Conflicto de relaciones en base de datos"
             : "Error interno del servidor";
 
-        res.status(500).json({
-            message: mensajeError,
+        res.status(statusCode).json({
+            message: errorMessage,
             details: error.message,
             operation: "UPDATE_ESTADO_SOLICITUD_ESTUDIANTE"
         });
