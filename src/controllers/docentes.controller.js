@@ -47,8 +47,9 @@ export const getDocentes = async (req, res) => {
         const pool = await getConnection();
         const result = await pool.request()
             .query(`
-                SELECT id_docente, nombre, apellido, correo, id_carrera 
-                FROM Docentes
+                SELECT d.id_docente, d.nombre, d.apellido, d.correo, d.id_carrera, da.id_aula
+                FROM Docentes d
+                LEFT JOIN DocenteAula da ON d.id_docente = da.id_docente
             `);
 
         res.json(result.recordset);
