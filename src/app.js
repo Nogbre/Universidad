@@ -57,6 +57,6 @@ app.use(insumosPorPracticaRoutes);
 app.use('/movimientos-inventario', movimientosInventarioRoutes);
 app.use(estudiantesRoutes);
 app.use(usuariosRoutes);
-app.use(aulaLaboratorioRoutes)
+app.use('/aulas', aulaLaboratorioRoutes);
 
 export default app;
