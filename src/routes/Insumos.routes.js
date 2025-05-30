@@ -8,7 +8,11 @@ import {
     updateInsumo,
     deleteInsumo,
     getInsumosPorUbicacion,
-    getInsumosEnUsoPorEncargado 
+    getInsumosEnUsoPorEncargado,
+    iniciarMantenimiento,
+    finalizarMantenimiento,
+    getMantenimientosActivos,
+    getHistorialMantenimientos
 } from '../controllers/Insumos.controllers.js'
 // import { verifyToken } from '../middlewares/verifyToken.js';
 
@@ -44,6 +48,11 @@ router.delete('/Insumos/:id', deleteInsumo);
 router.get('/insumos/ubicacion/:ubicacion', getInsumosPorUbicacion);
 
 router.get('/insumos-en-uso', getInsumosEnUsoPorEncargado);
+
+router.post('/mantenimiento', iniciarMantenimiento);
+router.patch('/mantenimiento/:id/finalizar', finalizarMantenimiento);
+router.get('/mantenimiento/activos', getMantenimientosActivos);
+router.get('/mantenimiento', getHistorialMantenimientos);
 
 
 
