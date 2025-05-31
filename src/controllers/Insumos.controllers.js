@@ -3,6 +3,7 @@ import { getConnection } from "../database/connection.js";
 import sql from 'mssql';
 import {gestionarAlertasInsumo} from "../helpers/alertas.js";
 
+//las consultas a la base de datos van en la carpeta model
 
 //get general
 export const getInsumos = async (req, res) => {
