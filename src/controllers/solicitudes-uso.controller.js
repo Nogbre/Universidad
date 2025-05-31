@@ -687,3 +687,58 @@ export const deleteAllSolicitudesUso = async (req, res) => {
         });
     }
 };
+
+export const getUltimaSolicitudAprobada = async (req, res) => {
+    try {
+        const pool = await getConnection();
+
+        const solicitudResult = await pool.request()
+            .query(`
+                SELECT TOP 1 
+                    s.*, 
+                    d.nombre + ' ' + d.apellido AS docente_nombre,
+                    d.correo AS correo_docente,
+                    p.titulo AS practica_titulo, 
+                    l.nombre AS laboratorio_nombre
+                FROM SolicitudesUso s
+                JOIN Docentes d ON s.id_docente = d.id_docente
+                JOIN Practicas p ON s.id_practica = p.id_practica
+                JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
+                WHERE s.estado = 'Aprobada'
+                ORDER BY s.fecha_hora_inicio DESC
+            `);
+
+        if (solicitudResult.recordset.length === 0) {
+            return res.status(404).json({
+                message: "No se encontraron solicitudes aprobadas"
+            });
+        }
+
+        const solicitud = solicitudResult.recordset[0];
+        const id_solicitud = solicitud.id_solicitud;
+
+        const detallesResult = await pool.request()
+            .input('id_solicitud', sql.Int, id_solicitud)
+            .query(`
+                SELECT 
+                    dsu.*, 
+                    i.nombre AS insumo_nombre, 
+                    i.unidad_medida
+                FROM DetalleSolicitudUso dsu
+                JOIN Insumos i ON dsu.id_insumo = i.id_insumo
+                WHERE dsu.id_solicitud = @id_solicitud
+            `);
+
+        res.json({
+            ...solicitud,
+            insumos: detallesResult.recordset
+        });
+
+    } catch (error) {
+        console.error('Error al obtener última solicitud aprobada:', error);
+        res.status(500).json({
+            message: "Error al obtener última solicitud aprobada",
+            error: error.message
+        });
+    }
+};

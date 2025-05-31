@@ -24,5 +24,6 @@ router.post('/solicitudes-uso/:id/devolver', devolverSolicitud);
 router.get('/solicitudes-uso/:id/insumos', getInsumosPorSolicitud);
 router.get('/solicitudes-uso/:id/practicas', getPracticasConInsumos);
 router.delete('/solicitudes', deleteAllSolicitudesUso);
+router.get('/solicitudes-uso/ultima-aprobada', getUltimaSolicitudAprobada);
 
 export default router;
