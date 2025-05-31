@@ -752,7 +752,7 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
         res.status(500).json({
             message: "Error al obtener última solicitud aprobada",
             error: error.message,
-            stack: error.stack 
+            stack: error.stack
         });
     }
 };
