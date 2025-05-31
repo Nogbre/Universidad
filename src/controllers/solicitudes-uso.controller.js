@@ -692,18 +692,19 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
     try {
         const pool = await getConnection();
 
+        // 1. Obtener la última solicitud aprobada
         const solicitudResult = await pool.request()
             .query(`
                 SELECT TOP 1 
-                    s.*, 
+                    s.*,
                     d.nombre + ' ' + d.apellido AS docente_nombre,
-                    d.correo AS correo_docente,
-                    p.titulo AS practica_titulo, 
-                    l.nombre AS laboratorio_nombre
+                       d.correo AS correo_docente,
+                       p.titulo AS practica_titulo,
+                       l.nombre AS laboratorio_nombre
                 FROM SolicitudesUso s
-                JOIN Docentes d ON s.id_docente = d.id_docente
-                JOIN Practicas p ON s.id_practica = p.id_practica
-                JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
+                         JOIN Docentes d ON s.id_docente = d.id_docente
+                         JOIN Practicas p ON s.id_practica = p.id_practica
+                         JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
                 WHERE s.estado = 'Aprobada'
                 ORDER BY s.fecha_hora_inicio DESC
             `);
@@ -715,17 +716,29 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
         }
 
         const solicitud = solicitudResult.recordset[0];
+
+        // 2. Validar y convertir el ID
         const id_solicitud = solicitud.id_solicitud;
 
+        // Verificar que el ID sea un número válido
+        if (typeof id_solicitud !== 'number' || isNaN(id_solicitud) || !Number.isInteger(id_solicitud)) {
+            console.error('ID de solicitud inválido:', id_solicitud);
+            return res.status(500).json({
+                message: "Error interno: ID de solicitud inválido",
+                details: `El ID obtenido no es un número entero válido: ${id_solicitud}`
+            });
+        }
+
+        // 3. Obtener detalles de insumos usando el ID validado
         const detallesResult = await pool.request()
             .input('id_solicitud', sql.Int, id_solicitud)
             .query(`
-                SELECT 
-                    dsu.*, 
-                    i.nombre AS insumo_nombre, 
+                SELECT
+                    dsu.*,
+                    i.nombre AS insumo_nombre,
                     i.unidad_medida
                 FROM DetalleSolicitudUso dsu
-                JOIN Insumos i ON dsu.id_insumo = i.id_insumo
+                         JOIN Insumos i ON dsu.id_insumo = i.id_insumo
                 WHERE dsu.id_solicitud = @id_solicitud
             `);
 
@@ -738,7 +751,8 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
         console.error('Error al obtener última solicitud aprobada:', error);
         res.status(500).json({
             message: "Error al obtener última solicitud aprobada",
-            error: error.message
+            error: error.message,
+            stack: error.stack 
         });
     }
 };
