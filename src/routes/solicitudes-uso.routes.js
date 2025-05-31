@@ -6,7 +6,7 @@ import {
     updateEstadoSolicitud,
     devolverSolicitud,
     getInsumosPorSolicitud,
-    getPracticasConInsumos, deleteAllSolicitudesUso,
+    getPracticasConInsumos, deleteAllSolicitudesUso, getUltimaSolicitudAprobada,
 } from '../controllers/solicitudes-uso.controller.js';
 
 
