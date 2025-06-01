@@ -513,3 +513,127 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
         });
     }
 };
+
+export const agregarInsumosSolicitudEstudiante = async (req, res) => {
+    let transaction;
+    try {
+        const { id } = req.params;
+        const { nuevos_insumos } = req.body;
+        const solicitudId = parseInt(id, 10);
+
+        if (!nuevos_insumos || !Array.isArray(nuevos_insumos) || nuevos_insumos.length === 0) {
+            return res.status(400).json({
+                message: "Se requiere un array de 'nuevos_insumos' con al menos un elemento"
+            });
+        }
+
+        const pool = await getConnection();
+        transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        const solicitud = await new sql.Request(transaction)
+            .input('id', sql.Int, solicitudId)
+            .query('SELECT estado FROM SolicitudesEstudiantes WHERE id_solicitud = @id');
+
+        if (!solicitud.recordset.length) {
+            await transaction.rollback();
+            return res.status(404).json({ message: "Solicitud no encontrada" });
+        }
+
+        const estadoActual = solicitud.recordset[0].estado;
+        const estadosBloqueados = ['Completada', 'Rechazada'];
+
+        if (estadosBloqueados.includes(estadoActual)) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "No se pueden agregar insumos a solicitudes completadas o rechazadas",
+                estado_actual: estadoActual
+            });
+        }
+
+        for (const insumo of nuevos_insumos) {
+            if (!insumo.id_insumo || !insumo.cantidad_solicitada) {
+                await transaction.rollback();
+                return res.status(400).json({
+                    message: "Cada insumo debe tener 'id_insumo' y 'cantidad_solicitada'"
+                });
+            }
+
+            const insumoExists = await new sql.Request(transaction)
+                .input('id_insumo', sql.Int, insumo.id_insumo)
+                .query('SELECT stock_actual FROM Insumos WHERE id_insumo = @id_insumo');
+
+            if (!insumoExists.recordset.length) {
+                await transaction.rollback();
+                return res.status(404).json({
+                    message: `Insumo ${insumo.id_insumo} no encontrado`
+                });
+            }
+
+            if (estadoActual === 'Aprobada') {
+                const stockActual = insumoExists.recordset[0].stock_actual;
+                if (stockActual < insumo.cantidad_solicitada) {
+                    await transaction.rollback();
+                    return res.status(400).json({
+                        message: "Stock insuficiente para insumo",
+                        id_insumo: insumo.id_insumo,
+                        stock_disponible: stockActual,
+                        cantidad_solicitada: insumo.cantidad_solicitada
+                    });
+                }
+
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, insumo.id_insumo)
+                    .input('cantidad', sql.Int, insumo.cantidad_solicitada)
+                    .query(`
+                        UPDATE Insumos 
+                        SET stock_actual = stock_actual - @cantidad 
+                        WHERE id_insumo = @id_insumo
+                    `);
+
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, insumo.id_insumo)
+                    .input('cantidad', sql.Int, insumo.cantidad_solicitada)
+                    .input('id_solicitud_estudiante', sql.Int, solicitudId)
+                    .input('responsable', sql.VarChar(100), 'Sistema')
+                    .query(`
+                        INSERT INTO MovimientosInventario (
+                            id_insumo, tipo_movimiento, cantidad,
+                            responsable, id_solicitud_estudiante
+                        ) VALUES (
+                            @id_insumo, 'PRESTAMO_EST', @cantidad,
+                            @responsable, @id_solicitud_estudiante
+                        )
+                    `);
+            }
+
+            await new sql.Request(transaction)
+                .input('id_solicitud', sql.Int, solicitudId)
+                .input('id_insumo', sql.Int, insumo.id_insumo)
+                .input('cantidad_solicitada', sql.Int, insumo.cantidad_solicitada)
+                .query(`
+                    INSERT INTO DetalleSolicitudEstudiante
+                        (id_solicitud, id_insumo, cantidad_solicitada)
+                    VALUES (@id_solicitud, @id_insumo, @cantidad_solicitada)
+                `);
+        }
+
+        await transaction.commit();
+
+        res.json({
+            message: "Insumos agregados exitosamente",
+            cantidad_agregada: nuevos_insumos.length,
+            estado_solicitud: estadoActual
+        });
+
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        console.error('Error al agregar insumos:', error);
+
+        res.status(500).json({
+            message: "Error interno al agregar insumos",
+            error: error.message,
+            operation: "AGREGAR_INSUMOS_SOLICITUD_ESTUDIANTE"
+        });
+    }
+};
