@@ -692,22 +692,33 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
     try {
         const pool = await getConnection();
 
-        // 1. Obtener la última solicitud aprobada
         const solicitudResult = await pool.request()
             .query(`
                 SELECT TOP 1 
-                    s.*,
+                    s.id_solicitud,  
+                    s.id_docente,
+                    s.id_practica,
+                    s.id_laboratorio,
+                    s.fecha_hora_inicio,
+                    s.fecha_hora_fin,
+                    s.numero_estudiantes,
+                    s.tamano_grupo,
+                    s.numero_grupos,
+                    s.observaciones,
+                    s.estado,
                     d.nombre + ' ' + d.apellido AS docente_nombre,
-                       d.correo AS correo_docente,
-                       p.titulo AS practica_titulo,
-                       l.nombre AS laboratorio_nombre
+                    d.correo AS correo_docente,
+                    p.titulo AS practica_titulo, 
+                    l.nombre AS laboratorio_nombre
                 FROM SolicitudesUso s
-                         JOIN Docentes d ON s.id_docente = d.id_docente
-                         JOIN Practicas p ON s.id_practica = p.id_practica
-                         JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
+                    JOIN Docentes d ON s.id_docente = d.id_docente
+                    JOIN Practicas p ON s.id_practica = p.id_practica
+                    JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
                 WHERE s.estado = 'Aprobada'
                 ORDER BY s.fecha_hora_inicio DESC
             `);
+
+        console.log("Resultados de la primera consulta:", solicitudResult.recordset);
 
         if (solicitudResult.recordset.length === 0) {
             return res.status(404).json({
@@ -717,42 +728,57 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
 
         const solicitud = solicitudResult.recordset[0];
 
-        // 2. Validar y convertir el ID
-        const id_solicitud = solicitud.id_solicitud;
+        console.log("ID obtenido:", solicitud.id_solicitud, "Tipo:", typeof solicitud.id_solicitud);
 
-        // Verificar que el ID sea un número válido
-        if (typeof id_solicitud !== 'number' || isNaN(id_solicitud) || !Number.isInteger(id_solicitud)) {
-            console.error('ID de solicitud inválido:', id_solicitud);
+        const id_solicitud = parseInt(solicitud.id_solicitud, 10);
+
+        if (isNaN(id_solicitud)) {
+            console.error('ERROR: ID no es un número válido. Valor recibido:', solicitud.id_solicitud);
             return res.status(500).json({
                 message: "Error interno: ID de solicitud inválido",
-                details: `El ID obtenido no es un número entero válido: ${id_solicitud}`
+                details: `El valor '${solicitud.id_solicitud}' no puede convertirse a número`,
+                rawData: solicitud
             });
         }
 
-        // 3. Obtener detalles de insumos usando el ID validado
         const detallesResult = await pool.request()
             .input('id_solicitud', sql.Int, id_solicitud)
             .query(`
-                SELECT
-                    dsu.*,
-                    i.nombre AS insumo_nombre,
+                SELECT 
+                    dsu.id_detalle,
+                    dsu.id_insumo,
+                    dsu.cantidad_por_grupo,
+                    dsu.cantidad_total,
+                    i.nombre AS insumo_nombre, 
                     i.unidad_medida
                 FROM DetalleSolicitudUso dsu
-                         JOIN Insumos i ON dsu.id_insumo = i.id_insumo
+                JOIN Insumos i ON dsu.id_insumo = i.id_insumo
                 WHERE dsu.id_solicitud = @id_solicitud
             `);
 
-        res.json({
+        const response = {
             ...solicitud,
             insumos: detallesResult.recordset
-        });
+        };
+
+        console.log("Respuesta exitosa para ID:", id_solicitud);
+        res.json(response);
 
     } catch (error) {
-        console.error('Error al obtener última solicitud aprobada:', error);
+        console.error('ERROR CRÍTICO:', {
+            message: error.message,
+            stack: error.stack,
+            code: error.code,
+            originalError: error.originalError
+        });
+
         res.status(500).json({
             message: "Error al obtener última solicitud aprobada",
             error: error.message,
-            stack: error.stack
+            errorDetails: {
+                code: error.code,
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            }
         });
     }
 };
