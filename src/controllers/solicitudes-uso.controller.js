@@ -695,30 +695,28 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
         const solicitudResult = await pool.request()
             .query(`
                 SELECT TOP 1 
-                    s.id_solicitud,  
+                    s.id_solicitud,
                     s.id_docente,
-                    s.id_practica,
-                    s.id_laboratorio,
-                    s.fecha_hora_inicio,
-                    s.fecha_hora_fin,
-                    s.numero_estudiantes,
-                    s.tamano_grupo,
-                    s.numero_grupos,
-                    s.observaciones,
-                    s.estado,
-                    d.nombre + ' ' + d.apellido AS docente_nombre,
-                    d.correo AS correo_docente,
-                    p.titulo AS practica_titulo, 
-                    l.nombre AS laboratorio_nombre
+                       s.id_practica,
+                       s.id_laboratorio,
+                       s.fecha_hora_inicio,
+                       s.fecha_hora_fin,
+                       s.numero_estudiantes,
+                       s.tamano_grupo,
+                       s.numero_grupos,
+                       s.observaciones,
+                       s.estado,
+                       d.nombre + ' ' + d.apellido AS docente_nombre,
+                       d.correo AS correo_docente,
+                       p.titulo AS practica_titulo,
+                       l.nombre AS laboratorio_nombre
                 FROM SolicitudesUso s
-                    JOIN Docentes d ON s.id_docente = d.id_docente
-                    JOIN Practicas p ON s.id_practica = p.id_practica
-                    JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
+                         JOIN Docentes d ON s.id_docente = d.id_docente
+                         JOIN Practicas p ON s.id_practica = p.id_practica
+                         JOIN Laboratorios l ON s.id_laboratorio = l.id_laboratorio
                 WHERE s.estado = 'Aprobada'
                 ORDER BY s.fecha_hora_inicio DESC
             `);
-
-        console.log("Resultados de la primera consulta:", solicitudResult.recordset);
 
         if (solicitudResult.recordset.length === 0) {
             return res.status(404).json({
@@ -728,20 +726,51 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
 
         const solicitud = solicitudResult.recordset[0];
 
-        console.log("ID obtenido:", solicitud.id_solicitud, "Tipo:", typeof solicitud.id_solicitud);
+        let id_solicitud;
 
-        const id_solicitud = parseInt(solicitud.id_solicitud, 10);
-
-        if (isNaN(id_solicitud)) {
-            console.error('ERROR: ID no es un número válido. Valor recibido:', solicitud.id_solicitud);
-            return res.status(500).json({
-                message: "Error interno: ID de solicitud inválido",
-                details: `El valor '${solicitud.id_solicitud}' no puede convertirse a número`,
-                rawData: solicitud
-            });
+        if (typeof solicitud.id_solicitud === 'bigint') {
+            id_solicitud = Number(solicitud.id_solicitud);
+        } else if (typeof solicitud.id_solicitud === 'string') {
+            id_solicitud = parseInt(solicitud.id_solicitud, 10);
+        } else {
+            id_solicitud = solicitud.id_solicitud;
         }
 
-        const detallesResult = await pool.request()
+        if (isNaN(id_solicitud) || !Number.isInteger(id_solicitud)) {
+            const fallbackId = await obtenerIDAlternativo(pool);
+            if (fallbackId) {
+                id_solicitud = fallbackId;
+                console.warn(`Usando ID alternativo: ${fallbackId}`);
+            } else {
+                throw new Error(`ID inválido: ${solicitud.id_solicitud}`);
+            }
+        }
+
+        const detallesResult = await obtenerDetallesSolicitud(pool, id_solicitud);
+
+        // 4. Construir respuesta
+        res.json({
+            ...solicitud,
+            insumos: detallesResult.recordset
+        });
+
+    } catch (error) {
+        console.error('Error crítico:', {
+            message: error.message,
+            stack: error.stack,
+            code: error.code
+        });
+
+        res.status(500).json({
+            message: "Error al obtener última solicitud aprobada",
+            error: error.message
+        });
+    }
+};
+
+async function obtenerDetallesSolicitud(pool, id_solicitud) {
+    try {
+        return await pool.request()
             .input('id_solicitud', sql.Int, id_solicitud)
             .query(`
                 SELECT 
@@ -755,30 +784,39 @@ export const getUltimaSolicitudAprobada = async (req, res) => {
                 JOIN Insumos i ON dsu.id_insumo = i.id_insumo
                 WHERE dsu.id_solicitud = @id_solicitud
             `);
+    } catch (paramError) {
+        console.warn('Error con parámetros, intentando sin ellos:', paramError.message);
 
-        const response = {
-            ...solicitud,
-            insumos: detallesResult.recordset
-        };
-
-        console.log("Respuesta exitosa para ID:", id_solicitud);
-        res.json(response);
-
-    } catch (error) {
-        console.error('ERROR CRÍTICO:', {
-            message: error.message,
-            stack: error.stack,
-            code: error.code,
-            originalError: error.originalError
-        });
-
-        res.status(500).json({
-            message: "Error al obtener última solicitud aprobada",
-            error: error.message,
-            errorDetails: {
-                code: error.code,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-            }
-        });
+        return await pool.request().query(`
+            SELECT 
+                dsu.id_detalle,
+                dsu.id_insumo,
+                dsu.cantidad_por_grupo,
+                dsu.cantidad_total,
+                i.nombre AS insumo_nombre, 
+                i.unidad_medida
+            FROM DetalleSolicitudUso dsu
+            JOIN Insumos i ON dsu.id_insumo = i.id_insumo
+            WHERE dsu.id_solicitud = ${id_solicitud}
+        `);
     }
-};
+}
+
+async function obtenerIDAlternativo(pool) {
+    try {
+        const result = await pool.request().query(`
+            SELECT MAX(id_solicitud) AS max_id
+            FROM SolicitudesUso
+            WHERE estado = 'Aprobada'
+        `);
+
+        if (result.recordset[0] && result.recordset[0].max_id) {
+            return Number(result.recordset[0].max_id);
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Error obteniendo ID alternativo:', error);
+        return null;
+    }
+}
