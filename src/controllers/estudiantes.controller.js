@@ -409,7 +409,13 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             `);
 
         if (!solicitud.recordset.length) {
-            await transaction.rollback();
+            if (transactionStarted) {
+                try {
+                    await transaction.rollback();
+                } catch (rollbackError) {
+                    console.error('Error en rollback (solicitud no encontrada):', rollbackError);
+                }
+            }
             return res.status(404).json({ message: "Solicitud no encontrada" });
         }
 
@@ -423,7 +429,13 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
         };
 
         if (!transicionesValidas[estadoActual].includes(estado)) {
-            await transaction.rollback();
+            if (transactionStarted) {
+                try {
+                    await transaction.rollback();
+                } catch (rollbackError) {
+                    console.error('Error en rollback (transición inválida):', rollbackError);
+                }
+            }
             return res.status(400).json({
                 message: "Transición inválida",
                 details: `Transición de ${estadoActual} a ${estado} no permitida`
@@ -445,7 +457,13 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
 
             for (const detalle of detalles.recordset) {
                 if (detalle.stock_actual < detalle.cantidad_solicitada) {
-                    await transaction.rollback();
+                    if (transactionStarted) {
+                        try {
+                            await transaction.rollback();
+                        } catch (rollbackError) {
+                            console.error('Error en rollback (stock insuficiente):', rollbackError);
+                        }
+                    }
                     return res.status(400).json({
                         message: "Stock insuficiente",
                         details: {
@@ -473,13 +491,13 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
                     .query(`
                         INSERT INTO MovimientosInventario (
                             id_insumo,
-                            tipo_movimiento,  
+                            tipo_movimiento,
                             cantidad,
                             responsable,
                             id_solicitud_estudiante
                         ) VALUES (
                                      @id_insumo,
-                                     'PRESTAMO_EST',  
+                                     'PRESTAMO_EST',
                                      @cantidad,
                                      @responsable,
                                      @id_solicitud_estudiante
@@ -517,13 +535,13 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
                     .query(`
                         INSERT INTO MovimientosInventario (
                             id_insumo,
-                            tipo_movimiento,  
+                            tipo_movimiento,
                             cantidad,
                             responsable,
                             id_solicitud_estudiante
                         ) VALUES (
                                      @id_insumo,
-                                     'DEVOLUCION_EST',  
+                                     'DEVOLUCION_EST',
                                      @cantidad,
                                      @responsable,
                                      @id_solicitud_estudiante
@@ -553,7 +571,13 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
         });
 
     } catch (error) {
-        if (transactionStarted) await transaction.rollback();
+        if (transactionStarted) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error('Error en rollback (catch general):', rollbackError);
+            }
+        }
         console.error('Error en actualización de estado:', error);
 
         const statusCode = error.number === 547 ? 409 : 500;
