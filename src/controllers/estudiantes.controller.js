@@ -117,13 +117,7 @@ export const createSolicitudEstudiante = async (req, res) => {
             insumos
         } = req.body;
 
-        const requiredFields = [
-            'id_estudiante',
-            'id_materia',
-            'fecha_hora_inicio',
-            'insumos'
-        ];
-
+        const requiredFields = ['id_estudiante', 'id_materia', 'fecha_hora_inicio', 'insumos'];
         const missingFields = requiredFields.filter(field => !req.body[field]);
         if (missingFields.length > 0) {
             return res.status(400).json({
@@ -135,15 +129,15 @@ export const createSolicitudEstudiante = async (req, res) => {
         transaction = new sql.Transaction(pool);
         await transaction.begin();
 
-        const estudiante = await new sql.Request(transaction)
+        const estudianteResult = await new sql.Request(transaction)
             .input('id_estudiante', sql.Int, id_estudiante)
             .query(`
-                SELECT id_carrera
-                FROM Estudiantes
+                SELECT id_carrera, insumos_prestados 
+                FROM Estudiantes WITH (UPDLOCK) 
                 WHERE id_estudiante = @id_estudiante
             `);
 
-        if (!estudiante.recordset.length) {
+        if (!estudianteResult.recordset.length) {
             await transaction.rollback();
             return res.status(404).json({
                 message: "Estudiante no encontrado",
@@ -151,9 +145,12 @@ export const createSolicitudEstudiante = async (req, res) => {
             });
         }
 
+        const estudiante = estudianteResult.recordset[0];
+        const id_carrera = estudiante.id_carrera;
+
         const solicitudResult = await new sql.Request(transaction)
             .input('id_estudiante', sql.Int, id_estudiante)
-            .input('id_carrera', sql.Int, estudiante.recordset[0].id_carrera)
+            .input('id_carrera', sql.Int, id_carrera)
             .input('id_materia', sql.Int, id_materia)
             .input('fecha_hora_inicio', sql.DateTime, new Date(fecha_hora_inicio))
             .input('fecha_hora_fin', sql.DateTime, fecha_hora_fin ? new Date(fecha_hora_fin) : null)
@@ -163,14 +160,15 @@ export const createSolicitudEstudiante = async (req, res) => {
                     id_estudiante, id_carrera, id_materia,
                     fecha_hora_inicio, fecha_hora_fin, observaciones
                 )
-                    OUTPUT INSERTED.id_solicitud
+                OUTPUT INSERTED.id_solicitud
                 VALUES (
                     @id_estudiante, @id_carrera, @id_materia,
                     @fecha_hora_inicio, @fecha_hora_fin, @observaciones
-                    )
+                )
             `);
 
         const id_solicitud = solicitudResult.recordset[0].id_solicitud;
+        const nuevosInsumosPrestados = [];
 
         for (const insumo of insumos) {
             if (!insumo.id_insumo || !insumo.cantidad_solicitada) {
@@ -183,7 +181,7 @@ export const createSolicitudEstudiante = async (req, res) => {
 
             const insumoExists = await new sql.Request(transaction)
                 .input('id_insumo', sql.Int, insumo.id_insumo)
-                .query('SELECT 1 FROM Insumos WHERE id_insumo = @id_insumo');
+                .query('SELECT nombre FROM Insumos WHERE id_insumo = @id_insumo');
 
             if (!insumoExists.recordset.length) {
                 await transaction.rollback();
@@ -192,6 +190,16 @@ export const createSolicitudEstudiante = async (req, res) => {
                     id_insumo: insumo.id_insumo
                 });
             }
+
+            const nombreInsumo = insumoExists.recordset[0].nombre;
+
+            nuevosInsumosPrestados.push({
+                id_insumo: insumo.id_insumo,
+                nombre: nombreInsumo,
+                cantidad: insumo.cantidad_solicitada,
+                id_solicitud: id_solicitud,
+                fecha_prestamo: new Date().toISOString()
+            });
 
             await new sql.Request(transaction)
                 .input('id_solicitud', sql.Int, id_solicitud)
@@ -204,6 +212,26 @@ export const createSolicitudEstudiante = async (req, res) => {
                 `);
         }
 
+        let insumosActuales = [];
+        try {
+            insumosActuales = estudiante.insumos_prestados
+                ? JSON.parse(estudiante.insumos_prestados)
+                : [];
+        } catch (e) {
+            console.warn("Error al parsear insumos prestados, reiniciando lista");
+        }
+
+        const nuevosInsumosCombinados = [...insumosActuales, ...nuevosInsumosPrestados];
+
+        await new sql.Request(transaction)
+            .input('id_estudiante', sql.Int, id_estudiante)
+            .input('insumos_prestados', sql.NVarChar(sql.MAX), JSON.stringify(nuevosInsumosCombinados))
+            .query(`
+                UPDATE Estudiantes 
+                SET insumos_prestados = @insumos_prestados
+                WHERE id_estudiante = @id_estudiante
+            `);
+
         await transaction.commit();
 
         res.status(201).json({
@@ -211,7 +239,8 @@ export const createSolicitudEstudiante = async (req, res) => {
             message: "Solicitud creada exitosamente",
             detalles: {
                 insumos_solicitados: insumos.length,
-                estudiante_id: id_estudiante
+                estudiante_id: id_estudiante,
+                insumos_prestados_actualizados: nuevosInsumosCombinados.length
             }
         });
 
