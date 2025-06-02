@@ -1,39 +1,52 @@
+// src/utils/excelSolicitud.js
 import path from 'path';
 import { fileURLToPath } from 'url';
 import ExcelJS from 'exceljs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATE   = path.join(__dirname, '../templates/plantilla-solicitud.xlsx');
+const TEMPLATE  = path.join(__dirname, '../templates/plantilla-solicitud.xlsx');
 
+/**
+ * Rellena la plantilla L-4 con los datos recibidos.
+ * @param {Object} data { encabezado: {...}, insumos: [...] }
+ * @returns {ExcelJS.Workbook}
+ */
 export async function buildExcel(data) {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(TEMPLATE);
-    const ws = wb.getWorksheet(1);       // Hoja 1 de la plantilla
+    const ws = wb.getWorksheet(1);           // Hoja 1
 
-    /* ─────────────── 1. Encabezado ─────────────── */
-    const h = data.encabezado;           // alias corto
+    /* ───────────────────── 1. Encabezado ───────────────────── */
+    const h = data.encabezado;
 
-    ws.getCell('J19').value = `SEDE/ SUB SEDE: ${h.sede ?? ''}`;
+    // Fila 19
+    ws.getCell('J19').value = `SEDE / SUB SEDE: ${h.sede ?? ''}`;
     ws.getCell('N19').value = `FACULTAD: ${h.facultad ?? ''}`;
     ws.getCell('S19').value = `DEPARTAMENTO: ${h.departamento ?? ''}`;
 
+    // Fila 20
     ws.getCell('J20').value = `ASIGNATURA: ${h.asignatura ?? ''}`;
     ws.getCell('S20').value = `GRUPO: ${h.grupo ?? ''}`;
     ws.getCell('U20').value = `GESTIÓN: ${h.gestion ?? ''}`;
 
-    ws.getCell('J21').value = `TÍTULO: ${h.titulo ?? ''}`;
-    ws.getCell('R21').value = `PRÁCTICA Nº: ${h.practica ?? ''}`;
-    ws.getCell('U21').value = `FECHA: ${h.fecha ?? ''}`;
+    // Fila 21  → Alumno
+    ws.getCell('J21').value = `ESTUDIANTE: ${h.alumno ?? ''}`;
 
-    ws.getCell('J22').value = `DOCENTE: ${h.docente ?? ''}`;
-    ws.getCell('J23').value = h.observaciones ?? '';
+    // Fila 22  → Título, práctica, fecha
+    ws.getCell('J22').value = `TÍTULO: ${h.titulo ?? ''}`;
+    ws.getCell('R22').value = `PRÁCTICA Nº: ${h.practica ?? ''}`;
+    ws.getCell('U22').value = `FECHA: ${h.fecha ?? ''}`;
 
-    /* ─────────────── 2. Insumos ────────────────── */
+    // Fila 23  → Docente
+    ws.getCell('J23').value = `DOCENTE: ${h.docente ?? ''}`;
+
+    // Fila 24  → Observaciones
+    ws.getCell('J24').value = h.observaciones ?? '';
+
+    /* ───────────────────── 2. Tabla de insumos ───────────────────── */
     /**
-     * data.insumos = [
-     *   { nombre: 'Resistencia 1 kΩ', cantidad: 10, categoria: 'RESISTENCIAS' },
-     *   …
-     * ]
+     * data.insumos: [{ nombre, cantidad, categoria }]
+     * Categorías válidas: INTEGRADOS | RESISTENCIAS | CAPACITORES | OTROS
      */
     const colMap = {
         INTEGRADOS:   { qty: 'J', name: 'K' },
@@ -42,16 +55,16 @@ export async function buildExcel(data) {
         OTROS:        { qty: 'V', name: 'W' }
     };
 
-    // Lleva la cuenta de en qué fila va cada categoría
+    // Primera fila libre para cada bloque
     const nextRow = { INTEGRADOS: 25, RESISTENCIAS: 25, CAPACITORES: 25, OTROS: 25 };
 
-    data.insumos.forEach((insumo, idx) => {
-        const cat = (insumo.categoria ?? 'OTROS').toUpperCase();
-        const map = colMap[cat] ?? colMap.OTROS;
-        const row = nextRow[cat]++;
+    data.insumos.forEach(({ nombre, cantidad, categoria = 'OTROS' }) => {
+        const cat  = categoria.toUpperCase();
+        const map  = colMap[cat] ?? colMap.OTROS;
+        const row  = nextRow[cat]++;
 
-        ws.getCell(`${map.qty}${row}`).value  = insumo.cantidad;
-        ws.getCell(`${map.name}${row}`).value = insumo.nombre;
+        ws.getCell(`${map.qty}${row}`).value  = cantidad;
+        ws.getCell(`${map.name}${row}`).value = nombre;
     });
 
     return wb;

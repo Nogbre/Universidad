@@ -5,7 +5,7 @@ import { buildExcel } from '../utils/excelSolicitud.js';
 
 /**
  * GET /api/solicitudes-estudiantes/:id/excel
- * Devuelve la planilla L-4 (.xlsx) ya rellenada.
+ * Devuelve la planilla L-4 (.xlsx) con los datos de la solicitud.
  */
 export const generarExcelSolicitudEstudiante = async (req, res) => {
     try {
@@ -16,27 +16,32 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
 
         const pool = await getConnection();
 
-        /* ────────────────── 1. Cabecera básica (alumno, carrera, materia) ────────────────── */
-        const solicitudRs = await pool.request()
+        /* ────────────────── 1. Cabecera (alumno, carrera, materia, docente) ────────────────── */
+        const cabeceraRs = await pool.request()
             .input('id', sql.Int, id)
             .query(`
                 SELECT
                     s.*,
-                    e.nombre + ' ' + e.apellido AS alumno,
-                    c.nombre                    AS carrera,
-                    m.nombre                    AS materia
+                    e.nombre + ' ' + e.apellido                       AS alumno,
+                    c.nombre                                          AS carrera,
+                    m.nombre                                          AS materia,
+                    d.docente                                         AS docente        -- ← obtenido con APPLY
                 FROM  SolicitudesEstudiantes s
-                          JOIN Estudiantes e ON e.id_estudiante = s.id_estudiante
-                          JOIN Carreras   c ON c.id_carrera    = s.id_carrera
-                          JOIN Materias   m ON m.id_materia    = s.id_materia
+                          JOIN Estudiantes e       ON e.id_estudiante = s.id_estudiante
+                          JOIN Carreras   c        ON c.id_carrera    = s.id_carrera
+                          JOIN Materias   m        ON m.id_materia    = s.id_materia
+                    OUTER APPLY (            -- Docente “más cercano” (misma carrera); si no hay, NULL
+                  SELECT TOP 1 nombre + ' ' + apellido AS docente
+                  FROM   Docentes
+                  WHERE  id_carrera = c.id_carrera
+              ) d
                 WHERE s.id_solicitud = @id;
             `);
 
-        if (!solicitudRs.recordset.length) {
+        if (!cabeceraRs.recordset.length) {
             return res.status(404).json({ message: 'Solicitud no encontrada' });
         }
-
-        const s = solicitudRs.recordset[0];
+        const s = cabeceraRs.recordset[0];
 
         /* ────────────────── 2. Detalle de insumos ────────────────── */
         const detalleRs = await pool.request()
@@ -50,29 +55,26 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
                 WHERE dse.id_solicitud = @id;
             `);
 
-        /* ────────────────── 3. Construir payload para la plantilla ────────────────── */
+        /* ────────────────── 3. Payload para la plantilla ────────────────── */
         const data = {
             encabezado: {
-                sede:          '__________',              // (rellenarán a mano)
-                facultad:      s.carrera ?? '',
-                departamento:  '__________',              // (rellenarán a mano)
-                asignatura:    s.materia,
-                grupo:         '__________',
-                gestion:       new Date().getFullYear(),  // ej. 2025
-                titulo:        '__________',
-                practica:      '___',
-                fecha:         new Date(s.fecha_hora_inicio).toLocaleDateString(),
-                docente:       '________________',
+                sede:         '__________',
+                facultad:     s.carrera,
+                departamento: '__________',
+                asignatura:   s.materia,
+                alumno:       s.alumno,                         // ← ahora se envía al Excel
+                grupo:        '__________',
+                gestion:      new Date().getFullYear(),
+                titulo:       '__________',
+                practica:     '___',
+                fecha:        new Date(s.fecha_hora_inicio).toLocaleDateString(),
+                docente:      s.docente ?? '________________',  // ← si no hay, queda vacío
                 observaciones: s.observaciones ?? ''
             },
-            /*
-              Si tu tabla Insumos tiene una columna "categoria", inclúyela aquí
-              para que el utilitario coloque cada ítem en la sección correcta.
-            */
             insumos: detalleRs.recordset.map(r => ({
-                nombre:   r.nombre,
-                cantidad: r.cantidad,
-                categoria: 'OTROS'           // ← o r.categoria si existe
+                nombre:    r.nombre,
+                cantidad:  r.cantidad,
+                categoria: 'OTROS'
             }))
         };
 

@@ -5,6 +5,10 @@ const app = express();
 
 const allowedOrigins = [
   'http://localhost:5173',
+  'exp://192.168.0.3:8081',
+  'exp://192.168.0.3:8082',
+  'exp://192.168.0.3:8083',
+  'exp://192.168.0.3:8084',
   'https://laboratorio-web.vercel.app',
   'https://www.laboratorio-web.vercel.app',
   'http://localhost:8081',
