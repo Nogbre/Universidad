@@ -3,6 +3,10 @@ import sql from 'mssql';
 import { getConnection } from '../database/connection.js';
 import { buildExcel } from '../utils/excelSolicitud.js';
 
+/**
+ * GET /api/solicitudes-estudiantes/:id/excel
+ * Devuelve la planilla L-4 (.xlsx) ya rellenada.
+ */
 export const generarExcelSolicitudEstudiante = async (req, res) => {
     try {
         const { id } = req.params;
@@ -12,6 +16,7 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
 
         const pool = await getConnection();
 
+        /* ────────────────── 1. Cabecera básica (alumno, carrera, materia) ────────────────── */
         const solicitudRs = await pool.request()
             .input('id', sql.Int, id)
             .query(`
@@ -31,32 +36,47 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
             return res.status(404).json({ message: 'Solicitud no encontrada' });
         }
 
-        const solicitud = solicitudRs.recordset[0];
+        const s = solicitudRs.recordset[0];
 
+        /* ────────────────── 2. Detalle de insumos ────────────────── */
         const detalleRs = await pool.request()
             .input('id', sql.Int, id)
             .query(`
-        SELECT
-          i.nombre,
-          dse.cantidad_solicitada AS cantidad
-        FROM  DetalleSolicitudEstudiante dse
-              JOIN Insumos i ON i.id_insumo = dse.id_insumo
-        WHERE dse.id_solicitud = @id;
-      `);
+                SELECT
+                    i.nombre,
+                    dse.cantidad_solicitada AS cantidad
+                FROM  DetalleSolicitudEstudiante dse
+                          JOIN Insumos i ON i.id_insumo = dse.id_insumo
+                WHERE dse.id_solicitud = @id;
+            `);
 
+        /* ────────────────── 3. Construir payload para la plantilla ────────────────── */
         const data = {
             encabezado: {
-                fecha:         new Date(solicitud.fecha_hora_inicio).toLocaleDateString(),
-                alumno:        solicitud.alumno,
-                carrera:       solicitud.carrera,
-                materia:       solicitud.materia,
+                sede:          '__________',              // (rellenarán a mano)
+                facultad:      s.carrera ?? '',
+                departamento:  '__________',              // (rellenarán a mano)
+                asignatura:    s.materia,
+                grupo:         '__________',
+                gestion:       new Date().getFullYear(),  // ej. 2025
+                titulo:        '__________',
+                practica:      '___',
+                fecha:         new Date(s.fecha_hora_inicio).toLocaleDateString(),
                 docente:       '________________',
-                observaciones: solicitud.observaciones ?? ''
+                observaciones: s.observaciones ?? ''
             },
-            insumos: detalleRs.recordset
+            /*
+              Si tu tabla Insumos tiene una columna "categoria", inclúyela aquí
+              para que el utilitario coloque cada ítem en la sección correcta.
+            */
+            insumos: detalleRs.recordset.map(r => ({
+                nombre:   r.nombre,
+                cantidad: r.cantidad,
+                categoria: 'OTROS'           // ← o r.categoria si existe
+            }))
         };
 
-        /* 4. Generar y enviar Excel */
+        /* ────────────────── 4. Generar y enviar Excel ────────────────── */
         const wb = await buildExcel(data);
 
         res.setHeader(
@@ -70,7 +90,6 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
 
         await wb.xlsx.write(res);
         res.end();
-
     } catch (err) {
         console.error('Error generando Excel:', err);
         res.status(500).json({ message: 'Error interno al generar Excel' });
