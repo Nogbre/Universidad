@@ -40,6 +40,7 @@ import movimientosInventarioRoutes from "./routes/movimientosInventario.routes.j
 import estudiantesRoutes from "./routes/estudiantes.routes.js";
 import usuariosRoutes from "./routes/Usuarios.routes.js";
 import aulaLaboratorioRoutes from "./routes/aulaLaboratorio.routes.js";
+import generarExcelSolicitudEstudianteRoutes from "./routes/solicitudesEst.routes.js";
 
 app.use('/auth', authRoutes);
 app.use(InsumosRoutes);
@@ -61,5 +62,6 @@ app.use('/movimientos-inventario', movimientosInventarioRoutes);
 app.use(estudiantesRoutes);
 app.use(usuariosRoutes);
 app.use('/aulas', aulaLaboratorioRoutes);
+app.use(generarExcelSolicitudEstudianteRoutes);
 
 export default app;
