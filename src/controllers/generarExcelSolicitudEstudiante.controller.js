@@ -12,61 +12,84 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
 
         const pool = await getConnection();
 
-        const solicitudQry = await pool.request()
+        /* ───────────────────────── 1. Solicitud + Materia ───────────────────────── */
+        const solicitudRs = await pool.request()
             .input('id', sql.Int, id)
             .query(`
                 SELECT
                     s.*,
                     e.nombre + ' ' + e.apellido   AS alumno,
-                    c.nombre                     AS carrera,
-                    m.nombre                     AS materia,
-                    d.nombre + ' ' + d.apellido  AS docente
+                    c.nombre                      AS carrera,
+                    m.nombre                      AS materia,
+                    m.id_docente                  AS id_docente   -- ← sólo el ID
                 FROM  SolicitudesEstudiantes s
-                          JOIN  Estudiantes  e ON e.id_estudiante = s.id_estudiante
-                          JOIN  Carreras     c ON c.id_carrera    = s.id_carrera
-                          JOIN  Materias     m ON m.id_materia    = s.id_materia
-                          JOIN  Docentes     d ON d.id_docente    = m.id_docente      -- ★ unión directa
+                          JOIN Estudiantes e ON e.id_estudiante = s.id_estudiante
+                          JOIN Carreras   c ON c.id_carrera    = s.id_carrera
+                          JOIN Materias   m ON m.id_materia    = s.id_materia
                 WHERE s.id_solicitud = @id;
             `);
 
-        if (!solicitudQry.recordset.length) {
+        if (!solicitudRs.recordset.length) {
             return res.status(404).json({ message: 'Solicitud no encontrada' });
         }
-        const solicitud = solicitudQry.recordset[0];
 
-        const detalleQry = await pool.request()
+        const solicitud = solicitudRs.recordset[0];
+
+        /* ───────────────────────── 2. Datos del Docente ─────────────────────────── */
+        let docenteNombre = 'Sin registro';
+        if (solicitud.id_docente !== null) {
+            const docenteRs = await pool.request()
+                .input('docId', sql.Int, solicitud.id_docente)
+                .query(`
+          SELECT nombre, apellido
+          FROM   Docentes
+          WHERE  id_docente = @docId;
+        `);
+
+            if (docenteRs.recordset.length) {
+                const d = docenteRs.recordset[0];
+                docenteNombre = `${d.nombre} ${d.apellido}`;
+            }
+        }
+
+        /* ───────────────────────── 3. Detalle de insumos ────────────────────────── */
+        const detalleRs = await pool.request()
             .input('id', sql.Int, id)
             .query(`
-                SELECT
-                    i.nombre,
-                    dse.cantidad_solicitada AS cantidad
-                FROM  DetalleSolicitudEstudiante dse
-                          JOIN  Insumos i ON i.id_insumo = dse.id_insumo
-                WHERE dse.id_solicitud = @id;
-            `);
+        SELECT
+          i.nombre,
+          dse.cantidad_solicitada AS cantidad
+        FROM  DetalleSolicitudEstudiante dse
+              JOIN Insumos i ON i.id_insumo = dse.id_insumo
+        WHERE dse.id_solicitud = @id;
+      `);
 
+        /* ───────────────────────── 4. Payload para Excel ────────────────────────── */
         const data = {
             encabezado: {
                 fecha:         new Date(solicitud.fecha_hora_inicio).toLocaleDateString(),
                 alumno:        solicitud.alumno,
                 carrera:       solicitud.carrera,
                 materia:       solicitud.materia,
-                docente:       solicitud.docente,
+                docente:       docenteNombre,
                 observaciones: solicitud.observaciones ?? ''
             },
-            insumos: detalleQry.recordset
+            insumos: detalleRs.recordset          // [{ nombre, cantidad }, …]
         };
 
-        const wb = await buildExcel(data);
+        /* ───────────────────────── 5. Genera y envía Excel ──────────────────────── */
+        const workbook = await buildExcel(data);
 
-        res.setHeader('Content-Type',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader(
+            'Content-Type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
         res.setHeader(
             'Content-Disposition',
             `attachment; filename=solicitud-${id}.xlsx`
         );
 
-        await wb.xlsx.write(res);
+        await workbook.xlsx.write(res);
         res.end();
 
     } catch (err) {
