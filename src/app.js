@@ -7,7 +7,9 @@ const allowedOrigins = [
   'http://localhost:5173',
   'https://laboratorio-web.vercel.app',
   'https://www.laboratorio-web.vercel.app',
-  'http://localhost:8081'
+  'http://localhost:8081',
+  'http://localhost:8082',
+  'http://localhost:8083'
 ];
 
 app.use(cors({
