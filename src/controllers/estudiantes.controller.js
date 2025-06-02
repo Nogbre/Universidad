@@ -442,6 +442,8 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             });
         }
 
+        let insumosProcesados = 0; 
+
         if (estado === 'Aprobada') {
             const detalles = await new sql.Request(transaction)
                 .input('id', sql.Int, solicitudId)
@@ -454,6 +456,8 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
                              JOIN Insumos i ON d.id_insumo = i.id_insumo
                     WHERE d.id_solicitud = @id
                 `);
+
+            insumosProcesados = detalles.recordset.length;
 
             for (const detalle of detalles.recordset) {
                 if (detalle.stock_actual < detalle.cantidad_solicitada) {
@@ -517,6 +521,8 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
                     WHERE id_solicitud = @id
                 `);
 
+            insumosProcesados = detalles.recordset.length;
+
             for (const detalle of detalles.recordset) {
                 await new sql.Request(transaction)
                     .input('id_insumo', sql.Int, detalle.id_insumo)
@@ -566,7 +572,7 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             nuevo_estado: estado,
             estado_anterior: estadoActual,
             detalles: {
-                insumos_procesados: estado === 'Aprobada' ? detalles.recordset.length : undefined
+                insumos_procesados: insumosProcesados
             }
         });
 
@@ -575,7 +581,9 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             try {
                 await transaction.rollback();
             } catch (rollbackError) {
-                console.error('Error en rollback (catch general):', rollbackError);
+                if (rollbackError.code !== 'ENOTBEGUN') {
+                    console.error('Error en rollback (catch general):', rollbackError);
+                }
             }
         }
         console.error('Error en actualización de estado:', error);
