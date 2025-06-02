@@ -514,6 +514,190 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
     }
 };
 
+export const devolverSolicitudEstudiante = async (req, res) => {
+    const pool = await getConnection();
+    const transaction = new sql.Transaction(pool);
+    let transactionStarted = false;
+
+    try {
+        const { id } = req.params;
+        const { insumos_no_devueltos = [] } = req.body;
+
+        if (isNaN(id) || !Number.isInteger(Number(id))) {
+            return res.status(400).json({
+                message: "ID inválido",
+                details: "El ID debe ser un número entero"
+            });
+        }
+
+        if (!Array.isArray(insumos_no_devueltos)) {
+            return res.status(400).json({
+                message: "Formato inválido para insumos no devueltos",
+                details: "Debe ser un array de objetos { id_insumo, cantidad_no_devuelta }"
+            });
+        }
+
+        const solicitudId = parseInt(id, 10);
+
+        await transaction.begin();
+        transactionStarted = true;
+
+        const solicitud = await new sql.Request(transaction)
+            .input('id', sql.Int, solicitudId)
+            .query(`
+                SELECT estado
+                FROM SolicitudesEstudiantes WITH (UPDLOCK, ROWLOCK)
+                WHERE id_solicitud = @id
+            `);
+
+        if (solicitud.recordset.length === 0) {
+            await transaction.rollback();
+            return res.status(404).json({ message: "Solicitud no encontrada" });
+        }
+
+        if (solicitud.recordset[0].estado !== 'Aprobada') {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "Solo se pueden devolver solicitudes aprobadas"
+            });
+        }
+
+        const detalles = await new sql.Request(transaction)
+            .input('id', sql.Int, solicitudId)
+            .query(`
+                SELECT 
+                    d.id_insumo, 
+                    d.cantidad_solicitada AS cantidad_total, 
+                    i.nombre
+                FROM DetalleSolicitudEstudiante d
+                JOIN Insumos i ON d.id_insumo = i.id_insumo
+                WHERE d.id_solicitud = @id
+            `);
+
+        const fechaDevolucion = new Date();
+        const noDevueltosValidos = [];
+        const erroresValidacion = [];
+
+        for (const detalle of detalles.recordset) {
+            const noDevuelto = insumos_no_devueltos.find(i => i.id_insumo === detalle.id_insumo);
+            const cantidadNoDevuelta = noDevuelto?.cantidad_no_devuelta || 0;
+
+            if (cantidadNoDevuelta < 0 || cantidadNoDevuelta > detalle.cantidad_total) {
+                erroresValidacion.push({
+                    id_insumo: detalle.id_insumo,
+                    nombre: detalle.nombre,
+                    error: `Cantidad no devuelta inválida (0 - ${detalle.cantidad_total})`,
+                    cantidad_proporcionada: cantidadNoDevuelta
+                });
+                continue;
+            }
+
+            const cantidadDevuelta = detalle.cantidad_total - cantidadNoDevuelta;
+
+            if (cantidadDevuelta > 0) {
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, cantidadDevuelta)
+                    .query(`
+                        UPDATE Insumos 
+                        SET stock_actual = stock_actual + @cantidad 
+                        WHERE id_insumo = @id_insumo
+                    `);
+
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, cantidadDevuelta)
+                    .input('id_solicitud_estudiante', sql.Int, solicitudId)
+                    .input('responsable', sql.VarChar(100), 'Encargado Laboratorio')
+                    .input('fecha_devuelto', sql.DateTime, fechaDevolucion)
+                    .query(`
+                        INSERT INTO MovimientosInventario (
+                            id_insumo,
+                            tipo_movimiento,
+                            cantidad,
+                            responsable,
+                            id_solicitud_estudiante,
+                            fecha_devuelto
+                        ) VALUES (
+                            @id_insumo,
+                            'DEVOLUCION_EST',
+                            @cantidad,
+                            @responsable,
+                            @id_solicitud_estudiante,
+                            @fecha_devuelto
+                        )
+                    `);
+            }
+
+            if (cantidadNoDevuelta > 0) {
+                noDevueltosValidos.push({
+                    id_insumo: detalle.id_insumo,
+                    cantidad_no_devuelta: cantidadNoDevuelta,
+                    nombre: detalle.nombre
+                });
+
+                await new sql.Request(transaction)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, cantidadNoDevuelta)
+                    .input('id_solicitud_estudiante', sql.Int, solicitudId)
+                    .input('responsable', sql.VarChar(100), 'Encargado Laboratorio')
+                    .query(`
+                        INSERT INTO MovimientosInventario (
+                            id_insumo,
+                            tipo_movimiento,
+                            cantidad,
+                            responsable,
+                            id_solicitud_estudiante
+                        ) VALUES (
+                            @id_insumo,
+                            'NO_DEVUELTO_EST',
+                            @cantidad,
+                            @responsable,
+                            @id_solicitud_estudiante
+                        )
+                    `);
+            }
+        }
+
+        if (erroresValidacion.length > 0) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "Errores en los datos de insumos no devueltos",
+                errores: erroresValidacion
+            });
+        }
+
+        await new sql.Request(transaction)
+            .input('id', sql.Int, solicitudId)
+            .input('insumos_no_devueltos', sql.NVarChar(sql.MAX), JSON.stringify(noDevueltosValidos))
+            .query(`
+                UPDATE SolicitudesEstudiantes
+                SET
+                    estado = 'Completada',
+                    insumos_no_devueltos = @insumos_no_devueltos
+                WHERE id_solicitud = @id
+            `);
+
+        await transaction.commit();
+
+        res.json({
+            message: "Devolución registrada exitosamente",
+            fecha_devolucion: fechaDevolucion.toISOString(),
+            insumos_devueltos: detalles.recordset.length - noDevueltosValidos.length,
+            insumos_no_devueltos: noDevueltosValidos
+        });
+
+    } catch (error) {
+        if (transactionStarted) await transaction.rollback();
+        console.error('Error al registrar devolución estudiantil:', error);
+        res.status(500).json({
+            message: "Error en el proceso de devolución",
+            details: error.message,
+            operation: "DEVOLUCION_SOLICITUD_ESTUDIANTE"
+        });
+    }
+};
+
 export const agregarInsumosSolicitudEstudiante = async (req, res) => {
     let transaction;
     try {
