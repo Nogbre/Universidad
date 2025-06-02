@@ -55,20 +55,19 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
                 WHERE dse.id_solicitud = @id;
             `);
 
-        /* ────────────────── 3. Payload para la plantilla ────────────────── */
         const data = {
             encabezado: {
-                sede:         '__________',
+                sede:         'Santa Cruz de la Sierra',
                 facultad:     s.carrera,
-                departamento: '__________',
+                departamento: 'Tecnologia',
                 asignatura:   s.materia,
-                alumno:       s.alumno,                         // ← ahora se envía al Excel
-                grupo:        '__________',
+                alumno:       s.alumno,
+                grupo:        '',
                 gestion:      new Date().getFullYear(),
-                titulo:       '__________',
-                practica:     '___',
+                titulo:       'Prestamo Individual',
+                practica:     '',
                 fecha:        new Date(s.fecha_hora_inicio).toLocaleDateString(),
-                docente:      s.docente ?? '________________',  // ← si no hay, queda vacío
+                docente:      s.docente ?? '________________',
                 observaciones: s.observaciones ?? ''
             },
             insumos: detalleRs.recordset.map(r => ({
@@ -78,7 +77,6 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
             }))
         };
 
-        /* ────────────────── 4. Generar y enviar Excel ────────────────── */
         const wb = await buildExcel(data);
 
         res.setHeader(
