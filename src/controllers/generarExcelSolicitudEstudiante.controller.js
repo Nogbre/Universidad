@@ -3,7 +3,6 @@ import sql from 'mssql';
 import { getConnection } from '../database/connection.js';
 import { buildExcel } from '../utils/excelSolicitud.js';
 
-
 export const generarExcelSolicitudEstudiante = async (req, res) => {
     try {
         const { id } = req.params;
@@ -13,52 +12,52 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
 
         const pool = await getConnection();
 
-        /* 1. Cabecera de la solicitud */
-        const solicitud = await pool.request()
+        const solicitudQry = await pool.request()
             .input('id', sql.Int, id)
             .query(`
-        SELECT s.*, 
-               e.nombre + ' ' + e.apellido             AS alumno,
-               c.nombre                                AS carrera,
-               m.nombre                                AS materia,
-               d.nombre + ' ' + d.apellido             AS docente
-        FROM   SolicitudesEstudiantes s
-        JOIN   Estudiantes  e ON e.id_estudiante   = s.id_estudiante
-        JOIN   Carreras     c ON c.id_carrera      = s.id_carrera
-        JOIN   Materias     m ON m.id_materia      = s.id_materia
-        JOIN   Docentes     d ON d.id_docente      = m.id_docente
-        WHERE  s.id_solicitud = @id
-      `);
+                SELECT
+                    s.*,
+                    e.nombre + ' ' + e.apellido   AS alumno,
+                    c.nombre                     AS carrera,
+                    m.nombre                     AS materia,
+                    d.nombre + ' ' + d.apellido  AS docente
+                FROM  SolicitudesEstudiantes s
+                          JOIN  Estudiantes  e ON e.id_estudiante = s.id_estudiante
+                          JOIN  Carreras     c ON c.id_carrera    = s.id_carrera
+                          JOIN  Materias     m ON m.id_materia    = s.id_materia
+                          JOIN  Docentes     d ON d.id_docente    = m.id_docente      -- ★ unión directa
+                WHERE s.id_solicitud = @id;
+            `);
 
-        if (!solicitud.recordset.length) {
+        if (!solicitudQry.recordset.length) {
             return res.status(404).json({ message: 'Solicitud no encontrada' });
         }
+        const solicitud = solicitudQry.recordset[0];
 
-        /* 2. Detalle de insumos */
-        const detalle = await pool.request()
+        const detalleQry = await pool.request()
             .input('id', sql.Int, id)
             .query(`
-        SELECT i.nombre,
-               d.cantidad_solicitada AS cantidad
-        FROM   DetalleSolicitudEstudiante d
-        JOIN   Insumos i ON i.id_insumo = d.id_insumo
-        WHERE  d.id_solicitud = @id
-      `);
+                SELECT
+                    i.nombre,
+                    dse.cantidad_solicitada AS cantidad
+                FROM  DetalleSolicitudEstudiante dse
+                          JOIN  Insumos i ON i.id_insumo = dse.id_insumo
+                WHERE dse.id_solicitud = @id;
+            `);
 
-        /* 3. Ensambla payload */
         const data = {
             encabezado: {
-                fecha:      new Date(solicitud.recordset[0].fecha_hora_inicio).toLocaleDateString(),
-                alumno:     solicitud.recordset[0].alumno,
-                carrera:    solicitud.recordset[0].carrera,
-                materia:    solicitud.recordset[0].materia,
-                docente:    solicitud.recordset[0].docente,
-                observaciones: solicitud.recordset[0].observaciones
+                fecha:         new Date(solicitud.fecha_hora_inicio).toLocaleDateString(),
+                alumno:        solicitud.alumno,
+                carrera:       solicitud.carrera,
+                materia:       solicitud.materia,
+                docente:       solicitud.docente,
+                observaciones: solicitud.observaciones ?? ''
             },
-            insumos: detalle.recordset
+            insumos: detalleQry.recordset
         };
 
-        const workbook = await buildExcel(data);
+        const wb = await buildExcel(data);
 
         res.setHeader('Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -67,7 +66,7 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
             `attachment; filename=solicitud-${id}.xlsx`
         );
 
-        await workbook.xlsx.write(res);
+        await wb.xlsx.write(res);
         res.end();
 
     } catch (err) {
