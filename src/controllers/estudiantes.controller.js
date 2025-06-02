@@ -442,7 +442,7 @@ export const updateEstadoSolicitudEstudiante = async (req, res) => {
             });
         }
 
-        let insumosProcesados = 0; 
+        let insumosProcesados = 0;
 
         if (estado === 'Aprobada') {
             const detalles = await new sql.Request(transaction)
