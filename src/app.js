@@ -41,6 +41,8 @@ import estudiantesRoutes from "./routes/estudiantes.routes.js";
 import usuariosRoutes from "./routes/Usuarios.routes.js";
 import aulaLaboratorioRoutes from "./routes/aulaLaboratorio.routes.js";
 import generarExcelSolicitudEstudianteRoutes from "./routes/solicitudesEst.routes.js";
+import excelRoutes from './routes/excel.routes.js';
+
 
 app.use('/auth', authRoutes);
 app.use(InsumosRoutes);
@@ -63,5 +65,7 @@ app.use(estudiantesRoutes);
 app.use(usuariosRoutes);
 app.use('/aulas', aulaLaboratorioRoutes);
 app.use(generarExcelSolicitudEstudianteRoutes);
+app.use('/api', excelRoutes);
+
 
 export default app;
