@@ -18,7 +18,7 @@ router.get('/estudiantes/solicitudes', getSolicitudesEstudiante);
 router.get('/estudiantes/solicitudes/:id', getSolicitudEstudianteById);
 router.patch('/estudiantes/solicitudes/:id', updateEstadoSolicitudEstudiante);
 router.patch('/estudiantes/solicitudes/:id/agregar-insumos', agregarInsumosSolicitudEstudiante);
-router.patch('/solicitudes/:id/devolver', devolverSolicitudEstudiante);
+router.patch('/estudiantes/solicitudes/:id/devolver', devolverSolicitudEstudiante);
 router.get('/estudiantes/:id/insumos-prestados', getInsumosPrestadosEstudiante);
 
 export default router;
