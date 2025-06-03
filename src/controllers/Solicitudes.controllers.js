@@ -1,12 +1,12 @@
-// src/controllers/Solicitudes.controller.js
-import sql from 'mssql';
+// ─────────────── src/controllers/Solicitudes.controller.js ───────────────
+import sql               from 'mssql';
 import { getConnection } from '../database/connection.js';
 
-/* ───────────────────────── Utils ───────────────────────── */
+/* ───────────────────────────── Utilidades ───────────────────────────── */
 
 const toMoney = (n) => Number.parseFloat(n.toFixed(2));
 
-/* convierte 123.45 -> "CIENTO VEINTITRÉS 45/100 BOLIVIANOS" (versión resumida) */
+/** 123.45 ⇒ "CIENTO VEINTITRÉS 45/100 BOLIVIANOS" (versión corta) */
 function numeroALetras(num = 0) {
   const u = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
   const d = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
@@ -22,19 +22,20 @@ function numeroALetras(num = 0) {
   return `${t.trim().toUpperCase()} ${num.toFixed(2).split('.')[1]}/100 BOLIVIANOS`;
 }
 
-/* ───────────────────────── CREATE ───────────────────────── */
+/* ─────────────────────────────  CREATE  ───────────────────────────── */
 
 export const createSolicitud = async (req, res) => {
   const {
     id_encargado,
     fecha_emision,
-    centro_costo        = null,
-    codigo_inversion    = null,
+    centro_costo     = null,
+    codigo_inversion = null,
     justificacion,
-    observaciones       = '',
-    items               = []
+    observaciones    = '',
+    items            = []
   } = req.body;
 
+  /* validaciones básicas */
   if (!id_encargado || !fecha_emision || !justificacion)
     return res.status(400).json({ message: 'Campos obligatorios faltantes' });
 
@@ -47,50 +48,50 @@ export const createSolicitud = async (req, res) => {
   try {
     await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
-    /* 1. Datos del encargado (responsable y unidad) */
+    /* 1-a. Datos del encargado (responsable y unidad) */
     const encRS = await new sql.Request(tx)
         .input('id', sql.Int, id_encargado)
         .query(`
-        SELECT nombre, apellido, unidad_solicitante
-        FROM   EncargadoLaboratorio
-        WHERE  id_encargado = @id
-      `);
+          SELECT nombre, apellido, unidad_solicitante
+          FROM   EncargadoLaboratorio
+          WHERE  id_encargado = @id
+        `);
 
     if (!encRS.recordset.length)
       throw new Error(`Encargado ID ${id_encargado} no existe`);
 
-    const encargado = encRS.recordset[0];
-    const responsable        = `${encargado.nombre} ${encargado.apellido}`.toUpperCase();
-    const unidad_solicitante = encargado.unidad_solicitante?.toUpperCase() || '—';
+    const responsable        = `${encRS.recordset[0].nombre} ${encRS.recordset[0].apellido}`.toUpperCase();
+    const unidad_solicitante = encRS.recordset[0].unidad_solicitante?.toUpperCase() || '—';
 
-    /* 2. Preparar detalle, calcular totales */
+    /* 1-b. Armar detalle y calcular totales */
     let monto_total = 0;
     const detalle   = [];
-    const detReq    = new sql.Request(tx);
 
     for (const it of items) {
       const { id_insumo, cantidad, precio_unitario, descripcion } = it;
+
       if (![id_insumo, cantidad, precio_unitario, descripcion].every(Boolean))
         throw new Error('Ítem con campos incompletos');
 
-      const uniRS = await detReq
+      /* unidad de medida del insumo (Request nuevo) */
+      const uniRS = await new sql.Request(tx)
           .input('iid', sql.Int, id_insumo)
           .query('SELECT unidad_medida FROM Insumos WHERE id_insumo = @iid');
 
       if (!uniRS.recordset.length)
         throw new Error(`Insumo ID ${id_insumo} no existe`);
 
-      const unidad      = uniRS.recordset[0].unidad_medida || '-';
-      const total_item  = toMoney(cantidad * precio_unitario);
-      monto_total      += total_item;
+      const unidad     = uniRS.recordset[0].unidad_medida || '-';
+      const total_item = toMoney(cantidad * precio_unitario);
+      monto_total     += total_item;
 
       detalle.push({ id_insumo, cantidad, unidad, descripcion, precio_unitario, total_item });
     }
 
-    monto_total  = toMoney(monto_total);
+    monto_total = toMoney(monto_total);
     const letras = numeroALetras(monto_total);
 
-    /* 3. Insertar cabecera */
+    /* 2. Insertar cabecera y obtener ID */
     const cabRS = await new sql.Request(tx)
         .input('enc',    sql.Int,          id_encargado)
         .input('fem',    sql.Date,         fecha_emision)
@@ -103,22 +104,22 @@ export const createSolicitud = async (req, res) => {
         .input('tot',    sql.Decimal(18,2),monto_total)
         .input('let',    sql.VarChar(255), letras)
         .query(`
-        INSERT INTO SolicitudesAdquisicion
+          INSERT INTO SolicitudesAdquisicion
           (id_encargado, fecha_emision, unidad_solicitante, centro_costo,
            responsable,  codigo_inversion, justificacion, observaciones,
            monto_total,  monto_letras, estado)
-        VALUES
-          (@enc, @fem, @uni, @cc,
-           @resp, @codInv, @just, @obs,
-           @tot,  @let, 'Pendiente');
-        SELECT SCOPE_IDENTITY() AS id;
-      `);
+          VALUES
+            (@enc, @fem, @uni, @cc,
+             @resp, @codInv, @just, @obs,
+             @tot,  @let, 'Pendiente');
+          SELECT SCOPE_IDENTITY() AS id;
+        `);
 
     const id_solicitud = cabRS.recordset[0].id;
 
-    /* 4. Insertar detalle */
+    /* 3. Insertar cada fila del detalle (Request nuevo por fila) */
     for (const d of detalle) {
-      await detReq
+      await new sql.Request(tx)
           .input('idSol', sql.Int,            id_solicitud)
           .input('iid',   sql.Int,            d.id_insumo)
           .input('cant',  sql.Int,            d.cantidad)
@@ -146,7 +147,7 @@ export const createSolicitud = async (req, res) => {
   }
 };
 
-/* ───────────────────────── LIST & DETAIL ───────────────────────── */
+/* ─────────────────────── LISTAR y DETALLE ─────────────────────── */
 
 export const getSolicitudes = async (_req, res) => {
   try {
@@ -181,7 +182,7 @@ export const getSolicitud = async (req, res) => {
         .query(`
           SELECT d.*, i.nombre AS nombre_insumo
           FROM   DetalleSolicitudAdquisicion d
-                   JOIN   Insumos i ON i.id_insumo = d.id_insumo
+                   JOIN Insumos i ON i.id_insumo = d.id_insumo
           WHERE  d.id_solicitud = @id
           ORDER  BY d.id_detalle
         `);
@@ -194,7 +195,7 @@ export const getSolicitud = async (req, res) => {
   }
 };
 
-/* ───────────────────────── UPDATE ───────────────────────── */
+/* ─────────────────────────────  UPDATE  ───────────────────────────── */
 
 export const updateSolicitud = async (req, res) => {
   const { id } = req.params;
@@ -206,14 +207,15 @@ export const updateSolicitud = async (req, res) => {
   try {
     await tx.begin();
 
-    const existe = await new sql.Request(tx)
+    /* Asegurar existencia */
+    const ex = await new sql.Request(tx)
         .input('id', sql.Int, id)
         .query('SELECT 1 FROM SolicitudesAdquisicion WHERE id_solicitud = @id');
 
-    if (!existe.recordset.length)
+    if (!ex.recordset.length)
       throw new Error('Solicitud no existe');
 
-    /* 1. cabecera */
+    /* 1. actualizar cabecera */
     await new sql.Request(tx)
         .input('id',  sql.Int, id)
         .input('est', sql.VarChar(30), estado || null)
@@ -225,13 +227,13 @@ export const updateSolicitud = async (req, res) => {
           WHERE id_solicitud = @id
         `);
 
-    /* 2. detalle (opcional) */
+    /* 2. si viene nuevo detalle */
     if (Array.isArray(items)) {
       await new sql.Request(tx)
           .input('id', sql.Int, id)
           .query('DELETE FROM DetalleSolicitudAdquisicion WHERE id_solicitud = @id');
 
-      let total = 0;
+      let nuevoTotal = 0;
 
       for (const it of items) {
         const { id_insumo, cantidad, precio_unitario, descripcion } = it;
@@ -243,34 +245,34 @@ export const updateSolicitud = async (req, res) => {
         if (!uniRS.recordset.length)
           throw new Error(`Insumo ID ${id_insumo} no existe`);
 
-        const unidad    = uniRS.recordset[0].unidad_medida || '-';
-        const totItem   = toMoney(cantidad * precio_unitario);
-        total          += totItem;
+        const unidad   = uniRS.recordset[0].unidad_medida || '-';
+        const totItem  = toMoney(cantidad * precio_unitario);
+        nuevoTotal    += totItem;
 
         await new sql.Request(tx)
-            .input('idSol', sql.Int, id)
-            .input('iid',   sql.Int, id_insumo)
-            .input('cant',  sql.Int, cantidad)
-            .input('uni',   sql.VarChar(50), unidad)
-            .input('desc',  sql.Text, descripcion)
-            .input('pu',    sql.Decimal(18,2), precio_unitario)
-            .input('tot',   sql.Decimal(18,2), totItem)
+            .input('idSol', sql.Int,            id)
+            .input('iid',   sql.Int,            id_insumo)
+            .input('cant',  sql.Int,            cantidad)
+            .input('uni',   sql.VarChar(50),    unidad)
+            .input('desc',  sql.Text,           descripcion)
+            .input('pu',    sql.Decimal(18, 2), precio_unitario)
+            .input('tot',   sql.Decimal(18, 2), totItem)
             .query(`
               INSERT INTO DetalleSolicitudAdquisicion
               (id_solicitud, id_insumo, cantidad, unidad,
                descripcion, precio_unitario, total_item)
               VALUES
                 (@idSol, @iid, @cant, @uni,
-                 @desc, @pu, @tot)
+                 @desc,  @pu,  @tot)
             `);
       }
 
-      total = toMoney(total);
-      const letras = numeroALetras(total);
+      nuevoTotal = toMoney(nuevoTotal);
+      const letras = numeroALetras(nuevoTotal);
 
       await new sql.Request(tx)
           .input('id',  sql.Int, id)
-          .input('tot', sql.Decimal(18,2), total)
+          .input('tot', sql.Decimal(18,2), nuevoTotal)
           .input('let', sql.VarChar(255),  letras)
           .query(`
             UPDATE SolicitudesAdquisicion
@@ -290,7 +292,7 @@ export const updateSolicitud = async (req, res) => {
   }
 };
 
-/* ───────────────────────── DELETE ───────────────────────── */
+/* ─────────────────────────────  DELETE  ───────────────────────────── */
 
 export const deleteSolicitud = async (req, res) => {
   const { id } = req.params;
@@ -303,6 +305,7 @@ export const deleteSolicitud = async (req, res) => {
     if (!rowsAffected[0])
       return res.status(404).json({ message: 'Solicitud no encontrada' });
 
+    /* Detalle se elimina por ON DELETE CASCADE */
     res.json({ message: 'Solicitud eliminada' });
 
   } catch (e) {
