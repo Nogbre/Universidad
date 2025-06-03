@@ -1,24 +1,66 @@
+// src/controllers/Solicitudes.controller.js
 import sql               from 'mssql';
 import { getConnection } from '../database/connection.js';
 
 /* ───────────── Helpers ───────────── */
+
 const toMoney = (n) => Number.parseFloat(n.toFixed(2));
 
+/**
+ * Convierte un número (0 – 999 999 999) a letras en español (forma compacta).
+ * Ej. 38 510  →  "TREINTA Y OCHO MIL QUINIENTOS DIEZ 00/100 BOLIVIANOS"
+ */
 function numeroALetras(num = 0) {
-  const u = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
-  const d = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta',
-    'setenta', 'ochenta', 'noventa'];
-  const c = ['', 'cien', 'doscientos', 'trescientos', 'cuatrocientos',
+  const unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco',
+    'seis', 'siete', 'ocho', 'nueve'];
+  const especiales = {
+    10: 'diez', 11: 'once', 12: 'doce', 13: 'trece', 14: 'catorce', 15: 'quince'
+  };
+  const decenasTxt = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta',
+    'sesenta', 'setenta', 'ochenta', 'noventa'];
+  const centenasTxt = ['', 'cien', 'doscientos', 'trescientos', 'cuatrocientos',
     'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
-  const n = Math.trunc(num);
-  if (!n) return 'CERO 00/100 BOLIVIANOS';
-  let t = '', r = n;
-  if (r >= 1_000_000) { t += `${u[Math.trunc(r / 1_000_000)]} millones `; r %= 1_000_000; }
-  if (r >= 1_000)      { t += `${u[Math.trunc(r / 1_000)]} mil `;        r %= 1_000;      }
-  if (r >= 100)        { t += `${c[Math.trunc(r / 100)]} `;              r %= 100;        }
-  if (r >= 10)         { t += `${d[Math.trunc(r / 10)]} `;               r %= 10;         }
-  if (r)               t += `${u[r]} `;
-  return `${t.trim().toUpperCase()} ${num.toFixed(2).split('.')[1]}/100 BOLIVIANOS`;
+
+  /* convierte 0-999 → texto */
+  const tramo999 = (n) => {
+    if (n === 0) return '';
+    if (n in especiales) return especiales[n];
+    let txt = '';
+    if (n >= 100) {
+      const c = Math.trunc(n / 100);
+      txt += (c === 1 && n % 100 ? 'ciento' : centenasTxt[c]) + ' ';
+      n %= 100;
+    }
+    if (n >= 20) {
+      txt += decenasTxt[Math.trunc(n / 10)];
+      n %= 10;
+      if (n) txt += ` y ${unidades[n]}`;
+    } else if (n >= 16) {
+      txt += `dieci${unidades[n - 10]}`;
+      n = 0;
+    } else if (n >= 10) {
+      txt += especiales[n];
+      n = 0;
+    }
+    if (n && n < 10) txt += (txt ? ' ' : '') + unidades[n];
+    return txt.trim();
+  };
+
+  const entero = Math.trunc(num);
+  if (entero === 0) return 'CERO 00/100 BOLIVIANOS';
+
+  const millones  = Math.trunc(entero / 1_000_000);
+  const milesRest = entero % 1_000_000;
+  const miles     = Math.trunc(milesRest / 1_000);
+  const cientos   = milesRest % 1_000;
+
+  let texto = '';
+  if (millones)  texto += `${tramo999(millones)} millón${millones > 1 ? 'es' : ''} `;
+  if (miles)     texto += `${tramo999(miles)} mil `;
+  if (cientos)   texto += tramo999(cientos);
+
+  const centavos = num.toFixed(2).split('.')[1];
+  return `${texto.trim().toUpperCase()} ${centavos}/100 BOLIVIANOS`;
 }
 
 /* ───────────── CREATE ───────────── */
@@ -105,12 +147,11 @@ export const createSolicitud = async (req, res) => {
             (@enc, @fem, @uni, @cc,
              @resp, @codInv, @just, @obs,
              @tot, @let, 'Pendiente');
-          SELECT SCOPE_IDENTITY() AS id;
-        `);
+          SELECT SCOPE_IDENTITY() AS id;`);
 
     const id_solicitud = cab.recordset[0].id;
 
-    /* 4. Insertar detalle (ahora CON id_insumo) */
+    /* 4. Insertar detalle */
     for (const d of detalle) {
       await new sql.Request(tx)
           .input('idSol', sql.Int,            id_solicitud)
@@ -125,8 +166,7 @@ export const createSolicitud = async (req, res) => {
             (id_solicitud, id_insumo, cantidad, unidad,
              descripcion, precio_unitario, total_item)
             VALUES (@idSol, @iid, @cant, @uni,
-                    @desc,  @pu,  @tot);
-          `);
+                    @desc,  @pu,  @tot);`);
     }
 
     await tx.commit();
@@ -147,8 +187,7 @@ export const getSolicitudes = async (_req, res) => {
       SELECT id_solicitud, fecha_emision, unidad_solicitante,
              responsable, monto_total, estado
       FROM   SolicitudesAdquisicion
-      ORDER  BY id_solicitud DESC;
-    `);
+      ORDER  BY id_solicitud DESC;`);
     res.json(recordset);
   } catch (e) {
     console.error(e);
@@ -175,8 +214,7 @@ export const getSolicitud = async (req, res) => {
           FROM   DetalleSolicitudAdquisicion d
                    JOIN Insumos i ON i.id_insumo = d.id_insumo
           WHERE  d.id_solicitud = @id
-          ORDER  BY d.id_detalle;
-        `);
+          ORDER  BY d.id_detalle;`);
 
     res.json({ ...cab.recordset[0], items: det.recordset });
 
@@ -212,8 +250,7 @@ export const updateSolicitud = async (req, res) => {
           UPDATE SolicitudesAdquisicion
           SET estado       = ISNULL(@est, estado),
               observaciones= ISNULL(@obs, observaciones)
-          WHERE id_solicitud = @id;
-        `);
+          WHERE id_solicitud = @id;`);
 
     /* 2. detalle (si llega) */
     if (Array.isArray(items)) {
@@ -237,21 +274,20 @@ export const updateSolicitud = async (req, res) => {
         total         += totItem;
 
         await new sql.Request(tx)
-            .input('idSol', sql.Int,            id)
-            .input('iid',   sql.Int,            id_insumo)
-            .input('cant',  sql.Int,            cantidad)
-            .input('uni',   sql.VarChar(50),    unidad)
-            .input('desc',  sql.Text,           descripcion)
-            .input('pu',    sql.Decimal(18,2),  precio_unitario)
-            .input('tot',   sql.Decimal(18,2),  totItem)
+            .input('idSol', sql.Int,           id)
+            .input('iid',   sql.Int,           id_insumo)
+            .input('cant',  sql.Int,           cantidad)
+            .input('uni',   sql.VarChar(50),   unidad)
+            .input('desc',  sql.Text,          descripcion)
+            .input('pu',    sql.Decimal(18,2), precio_unitario)
+            .input('tot',   sql.Decimal(18,2), totItem)
             .query(`
               INSERT INTO DetalleSolicitudAdquisicion
               (id_solicitud, id_insumo, cantidad, unidad,
                descripcion, precio_unitario, total_item)
               VALUES
                 (@idSol, @iid, @cant, @uni,
-                 @desc,  @pu,  @tot);
-            `);
+                 @desc,  @pu,  @tot);`);
       }
 
       total = toMoney(total);
@@ -265,8 +301,7 @@ export const updateSolicitud = async (req, res) => {
             UPDATE SolicitudesAdquisicion
             SET monto_total = @tot,
                 monto_letras= @let
-            WHERE id_solicitud = @id;
-          `);
+            WHERE id_solicitud = @id;`);
     }
 
     await tx.commit();
