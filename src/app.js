@@ -13,7 +13,8 @@ const allowedOrigins = [
   'https://www.laboratorio-web.vercel.app',
   'http://localhost:8081',
   'http://localhost:8082',
-  'http://localhost:8083'
+  'http://localhost:8083',
+  'http://127.0.0.1:3000'
 ];
 
 app.use(cors({
