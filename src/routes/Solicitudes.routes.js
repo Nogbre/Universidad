@@ -5,7 +5,7 @@ import {
   getSolicitud,
   updateSolicitud,
   deleteSolicitud
-} from '../controllers/Solicitudes.controller.js';
+} from '../controllers/Solicitudes.controllers.js';
 
 const router = Router();
 
