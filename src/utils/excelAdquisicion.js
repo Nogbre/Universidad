@@ -1,4 +1,3 @@
-// src/utils/excelAdquisicion.js
 import path              from 'path';
 import { fileURLToPath } from 'url';
 import ExcelJS           from 'exceljs';
@@ -6,77 +5,107 @@ import ExcelJS           from 'exceljs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE   = path.join(__dirname, '../templates/solicitud.xlsx');
 
-/* ───────── helpers ───────── */
-const sinAcentos = (t='') =>
-    t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+/* ────────────────────────── Helpers ────────────────────────── */
 
-function replace(cell, tag, value='') {
+/** Reemplaza `{{TAG}}` en una celda conservando el resto del texto */
+function replace(cell, tag, value = '') {
     if (typeof cell.value === 'string' && cell.value.includes(tag)) {
         cell.value = cell.value.replace(tag, value);
     }
 }
 
-/* ───────── localizar inicio de tabla ───────── */
-function locateTableStart(ws) {
+/**
+ * Localiza la fila‐cabecera de la tabla de ítems.
+ * Devuelve el nº de fila donde empiezan los datos **y** el mapa de columnas.
+ *
+ *  🌟  Tolera plantillas con columnas “de separación” (celdas vacías):
+ *       A      B     C      D   …   N   O   P    Q
+ *    ┌────┬────┬────┬────┬───┬───┬───┬───┬────┐
+ *    │Cant│    │Uni │    │Desc … │P/U│   │Total│
+ *
+ *  Resultado: `{ row:  cabRow + 1,
+ *                cols: { cantidad: 1, unidad: 3, descripcion: 5, precio: 14, total: 17 } }`
+ */
+function locateTable(ws) {
+    const normalize = (v) => String(v ?? '')
+        .toUpperCase()
+        .replace('Ó', 'O')        // quita tildes para comparar
+        .trim();
 
-    /* (a) marcador explícito */
-    for (const row of ws._rows) {
-        if (!row) continue;
-        for (const cell of row._cells) {
-            if (cell && cell.value === '{{ITEMS_START}}') {
-                const pos = { row: cell.row, col: cell.col };
-                cell.value = '';          // limpiar marcador
-                return pos;
+    for (const row of ws._rows.filter(Boolean)) {
+        for (const cell of row._cells.filter(Boolean)) {
+            const val = normalize(cell.value);
+            if (val === 'CANTIDAD') {
+                // Recorremos la misma fila buscando las demás cabeceras
+                const headers = {
+                    cantidad   : 'CANTIDAD',
+                    unidad     : 'UNIDAD',
+                    descripcion: 'DESCRIPCION',   // sin tilde
+                    precio     : 'P/U',
+                    total      : 'VALOR TOTAL'
+                };
+
+                const cols = { };
+                row._cells.forEach(c => {
+                    const x = normalize(c.value);
+                    const key = Object.keys(headers).find(k => headers[k] === x);
+                    if (key) cols[key] = c.col;
+                });
+
+                // Si encontramos TODAS las cabeceras devolvemos el punto de inserción
+                if (Object.keys(headers).every(k => cols[k] !== undefined)) {
+                    return { row: row.number + 1, cols };
+                }
             }
         }
     }
-
-    /* (b) fila-encabezado flexible */
-    const need = ['CANTIDAD', 'UNIDAD', 'DESCRIPCION', 'P/U', 'TOTAL', 'VALOR TOTAL'];
-    for (const row of ws._rows.filter(Boolean)) {
-        const texts = row.values.map(v => sinAcentos(v ?? ''));
-        const hits  = texts.filter(t => need.includes(t)).length;
-        if (hits >= 3) {                           // al menos 3 coincidencias
-            const qtyCol = texts.findIndex(t => t === 'CANTIDAD') || 1;
-            return { row: row.number + 1, col: qtyCol };
-        }
-    }
-
-    throw new Error('No se encontró {{ITEMS_START}} ni una fila de encabezados válida');
+    throw new Error('No se encontró la fila de cabeceras de la tabla de ítems');
 }
 
-/* ───────── constructor de Excel ───────── */
+/* ────────────────────────── Builder ────────────────────────── */
+
+/**
+ * buildExcelAdquisicion({ cabecera, items })
+ *
+ *   cabecera → {
+ *     unidadSolicitante, responsable, centroCosto, codigoInversion,
+ *     fechaEmision:{dia,mes,anio}, justificacion, observaciones,
+ *     montoTotal,   montoLetras
+ *   }
+ *
+ *   items → [{ cantidad, unidad, descripcion, precioUnitario, totalItem }]
+ */
 export async function buildExcelAdquisicion({ cabecera: h, items }) {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(TEMPLATE);
     const ws = wb.getWorksheet(1);
 
-    /* 1. marcadores sencillos */
-    ws.eachRow(r => r.eachCell(c => {
-        replace(c, '{{UNIDAD_SOLICITANTE}}', h.unidadSolicitante);
-        replace(c, '{{RESPONSABLE}}',        h.responsable);
-        replace(c, '{{CENTRO_COSTO}}',       h.centroCosto);
-        replace(c, '{{CODIGO_INVERSION}}',   h.codigoInversion);
-        replace(c, '{{FECHA_DIA}}',          String(h.fechaEmision.dia).padStart(2,'0'));
-        replace(c, '{{FECHA_MES}}',          String(h.fechaEmision.mes).padStart(2,'0'));
-        replace(c, '{{FECHA_ANIO}}',         h.fechaEmision.anio);
-        replace(c, '{{JUSTIFICACION}}',      h.justificacion);
-        replace(c, '{{OBSERVACIONES}}',      h.observaciones);
-        replace(c, '{{MONTO_TOTAL}}',        h.montoTotal.toLocaleString('es-BO',{minimumFractionDigits:2}));
-        replace(c, '{{MONTO_LETRAS}}',       h.montoLetras);
+    /* ─── 1. Reemplazo de marcadores simples ─── */
+    ws.eachRow(row => row.eachCell(cell => {
+        replace(cell, '{{UNIDAD_SOLICITANTE}}', h.unidadSolicitante);
+        replace(cell, '{{RESPONSABLE}}',        h.responsable);
+        replace(cell, '{{CENTRO_COSTO}}',       h.centroCosto);
+        replace(cell, '{{CODIGO_INVERSION}}',   h.codigoInversion);
+        replace(cell, '{{FECHA_DIA}}',          String(h.fechaEmision.dia).padStart(2, '0'));
+        replace(cell, '{{FECHA_MES}}',          String(h.fechaEmision.mes).padStart(2, '0'));
+        replace(cell, '{{FECHA_ANIO}}',         h.fechaEmision.anio);
+        replace(cell, '{{JUSTIFICACION}}',      h.justificacion);
+        replace(cell, '{{OBSERVACIONES}}',      h.observaciones);
+        replace(cell, '{{MONTO_TOTAL}}',        h.montoTotal.toLocaleString('es-BO', { minimumFractionDigits: 2 }));
+        replace(cell, '{{MONTO_LETRAS}}',       h.montoLetras);
     }));
 
-    /* 2. tabla dinámica de ítems */
-    const start = locateTableStart(ws);      // { row, col }
-    let r = start.row;
+    /* ─── 2. Tabla de ítems ─── */
+    const { row: startRow, cols } = locateTable(ws);
+    let r = startRow;
 
     items.forEach(it => {
         const row = ws.getRow(r++);
-        row.getCell(start.col    ).value = it.cantidad;
-        row.getCell(start.col + 1).value = it.unidad;
-        row.getCell(start.col + 2).value = it.descripcion;
-        row.getCell(start.col + 3).value = it.precioUnitario;
-        row.getCell(start.col + 4).value = it.totalItem;
+        row.getCell(cols.cantidad   ).value = it.cantidad;
+        row.getCell(cols.unidad     ).value = it.unidad;
+        row.getCell(cols.descripcion).value = it.descripcion;
+        row.getCell(cols.precio     ).value = it.precioUnitario;
+        row.getCell(cols.total      ).value = it.totalItem;
         row.commit();
     });
 
