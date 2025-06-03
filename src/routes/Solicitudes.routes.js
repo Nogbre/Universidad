@@ -1,18 +1,18 @@
 import { Router } from 'express';
 import {
-  createSolicitud,
-  getSolicitudes,
-  getSolicitud,
-  updateSolicitud,
-  deleteSolicitud
+  createSolicitudAdq,
+  getSolicitudesAdq,
+  getSolicitudAdq,
+  updateSolicitudAdq,
+  deleteSolicitudAdq
 } from '../controllers/Solicitudes.controllers.js';
 
 const router = Router();
 
-router.get('/solicitudes', getSolicitudes);
-router.get('/solicitudes/:id', getSolicitud);
-router.post('/solicitudes', createSolicitud);
-router.put('/solicitudes/:id', updateSolicitud);
-router.delete('/solicitudes/:id', deleteSolicitud);
+router.get('/solicitudes',       getSolicitudesAdq);
+router.get('/solicitudes/:id',   getSolicitudAdq);
+router.post('/solicitudes',      createSolicitudAdq);
+router.put('/solicitudes/:id',   updateSolicitudAdq);
+router.delete('/solicitudes/:id',deleteSolicitudAdq);
 
 export default router;
