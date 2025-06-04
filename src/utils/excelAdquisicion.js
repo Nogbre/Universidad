@@ -24,9 +24,11 @@ const norm = (txt) =>
 
 /** ② Sustituye {{TAG}} dentro de la misma celda (conserva el resto del texto) */
 function put(cell, tag, value = '') {
-    if (typeof cell.value !== 'string') return;
+    if (typeof cell.value !== 'string') return false;
     const re = new RegExp(`{{\\s*${tag}\\s*}}`, 'gi');
-    if (re.test(cell.value)) cell.value = cell.value.replace(re, value);
+    const matched = re.test(cell.value);
+    if (matched) cell.value = cell.value.replace(re, value);
+    return matched;                                  // ← indica si lo reemplazó
 }
 
 /* Utilidad: "AB12" → { row:12, col:28 } */
@@ -89,7 +91,6 @@ function locateTable(ws) {
                     (v, i) => i !== 0 && v !== null && v !== undefined && v !== ''
                 )
                 ) startRow += 1;
-
             return { startRow, cols: map };
         }
     }
@@ -104,9 +105,10 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
     await wb.xlsx.readFile(TEMPLATE);
     const ws = wb.getWorksheet(1);
 
-    /* 1. Marcadores {{TAG}} — sólo campos de texto grande -------------------- */
+    /* 1. Marcadores {{TAG}} ------------------------------------------------ */
     ws.eachRow(row =>
         row.eachCell(cell => {
+            /* campos simples */
             put(cell, 'JUSTIFICACION',  h.justificacion);
             put(cell, 'OBSERVACIONES',  h.observaciones);
             put(cell, 'FECHA_DIA',      String(h.fechaEmision.dia).padStart(2, '0'));
@@ -118,10 +120,16 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
                 h.montoTotal.toLocaleString('es-BO', { minimumFractionDigits: 2 })
             );
             put(cell, 'MONTO_LETRAS',   h.montoLetras);
+
+            /* campos de cabecera que pueden venir como marcador */
+            put(cell, 'UNIDAD_SOLICITANTE', h.unidadSolicitante);
+            put(cell, 'CENTRO_COSTO',       h.centroCosto);
+            put(cell, 'RESPONSABLE',        h.responsable);
+            put(cell, 'CODIGO_INVERSION',   h.codigoInversion);
         })
     );
 
-    /* 2. Etiquetas visibles -------------------------------------------------- */
+    /* 2. Etiquetas visibles (fallback si NO existe marcador) ---------------- */
     const labelMap = {
         'UNIDAD SOLICITANTE'       : h.unidadSolicitante,
         'CENTRO DE COSTO'          : h.centroCosto,
@@ -133,7 +141,9 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
         row.eachCell(cell => {
             const txt = norm(cell.value);
             Object.entries(labelMap).forEach(([lbl, val]) => {
-                if (txt.startsWith(lbl) && val) putNext(ws, cell, val);
+                if (txt.startsWith(lbl) && val && !txt.includes('{{')) {   // marcador ausente
+                    putNext(ws, cell, val);
+                }
             });
             if (txt.startsWith('FECHA EMISION DEL PEDIDO')) {
                 ws.getCell(cell.row, cell.col + 1).value = h.fechaEmision.dia;
