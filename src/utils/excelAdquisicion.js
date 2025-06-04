@@ -1,87 +1,172 @@
-// src/utils/excelAdquisicion.js
-import ExcelJS from 'exceljs';
-import path from 'path';
+/* ──────────────────────────────────────────────────────────────────────
+ *  src/utils/excelAdquisicion.js
+ *  Genera la planilla “Solicitud de Adquisición de Activos”
+ *  (mantén numeradas las secciones ①-⑤: sirven como guía de mantenimiento)
+ * ────────────────────────────────────────────────────────────────────── */
+
+import path              from 'path';
 import { fileURLToPath } from 'url';
+import ExcelJS           from 'exceljs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TEMPLATE   = path.join(__dirname, '../templates/solicitud.xlsx');
 
-export const buildExcelAdquisicion = async (payload) => {
-    try {
-        // 1. Cargar plantilla
-        const templatePath = path.join(__dirname, '../../templates/solicitud.xlsx');
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.readFile(templatePath);
-        const worksheet = workbook.getWorksheet('Solicitud');
+/* ───────────────────────── Helpers ───────────────────────── */
 
-        // 2. Obtener rangos fusionados (solución al error)
-        const mergedRanges = worksheet._merges
-            ? Array.from(worksheet._merges.values())
-            : worksheet.mergedCells || [];
+/** ① Normaliza texto p/ comparaciones */
+const norm = (txt) =>
+    (txt ?? '')
+        .toString()
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036F]/g, '')
+        .trim();
 
-        // 3. Función para escribir valores considerando fusiones
-        const putNext = (startCell, value, style = {}) => {
-            const cell = worksheet.getCell(startCell);
-            cell.value = value;
+/** ② Sustituye {{TAG}} dentro de la misma celda */
+function put(cell, tag, value = '') {
+    if (typeof cell.value !== 'string') return;
+    const re = new RegExp(`{{\\s*${tag}\\s*}}`, 'gi');
+    if (re.test(cell.value)) cell.value = cell.value.replace(re, value);
+}
 
-            // Buscar si la celda está fusionada
-            const merge = mergedRanges.find(m => m.top <= cell.row &&
-                m.bottom >= cell.row &&
-                m.left <= cell.col &&
-                m.right >= cell.col);
+/* Utilidad para pasar "AB12" → { row:12, col:28 } */
+function decodeAddr(addr) {
+    const [, letters, digits] = addr.match(/^([A-Z]+)(\d+)$/);
+    let col = 0;
+    for (const ch of letters) col = col * 26 + (ch.charCodeAt(0) - 64);
+    return { row: Number(digits), col };
+}
 
-            if (merge) {
-                // Escribir solo en la celda superior izquierda del rango fusionado
-                if (cell.row === merge.top && cell.col === merge.left) {
-                    worksheet.getCell(merge.top, merge.left).value = value;
-                    Object.assign(worksheet.getCell(merge.top, merge.left), style);
-                }
-            } else {
-                Object.assign(cell, style);
+/** ③ Escribe `value` en la primera celda a la derecha de la etiqueta (maneja fusiones) */
+function putNext(ws, cell, value) {
+    let nextCol = cell.col + 1;                       // por defecto (no fusionado)
+
+    if (cell.isMerged && ws._merges) {
+        /* _merges puede ser:
+           – Map   (<key:string, val:{model:{top,left,bottom,right}}>)
+           – plain object { 'A1:B3':true, 'C1:D1':true, … }
+        */
+        const mergeRefs =
+            ws._merges instanceof Map ? Array.from(ws._merges.keys())
+                : Object.keys(ws._merges);
+
+        for (const ref of mergeRefs) {
+            const [tl, br] = ref.split(':');              // "A1:B3"
+            const { row: r1, col: c1 } = decodeAddr(tl);
+            const { row: r2, col: c2 } = decodeAddr(br);
+
+            if (
+                cell.row >= r1 && cell.row <= r2 &&
+                cell.col >= c1 && cell.col <= c2
+            ) {
+                nextCol = c2 + 1;                           // justo después del bloque
+                break;
             }
-        };
-
-        // 4. Llenar cabecera (ejemplo)
-        putNext('B2', payload.cabecera.unidadSolicitante, { font: { bold: true } });
-        putNext('B3', payload.cabecera.responsable);
-        putNext('B4', payload.cabecera.fechaCompleta);
-        putNext('B5', payload.cabecera.centroCosto);
-        putNext('B6', payload.cabecera.codigoInversion);
-        putNext('B7', payload.cabecera.justificacion);
-        putNext('B8', payload.cabecera.observaciones);
-        putNext('B9', `$${payload.cabecera.montoTotal.toFixed(2)}`, { numFmt: '"$"#,##0.00' });
-        putNext('B10', payload.cabecera.montoLetras);
-
-        // 5. Llenar items
-        let rowIndex = 12; // Fila inicial de items
-        payload.items.forEach((item, idx) => {
-            putNext(`A${rowIndex}`, idx + 1);
-            putNext(`B${rowIndex}`, item.cantidad);
-            putNext(`C${rowIndex}`, item.unidad);
-            putNext(`D${rowIndex}`, item.descripcion);
-            putNext(`E${rowIndex}`, item.precioUnitario, { numFmt: '"$"#,##0.00' });
-            putNext(`F${rowIndex}`, item.totalItem, { numFmt: '"$"#,##0.00' });
-            rowIndex++;
-        });
-
-        // 6. Ajustar filas automáticamente
-        worksheet.columns.forEach(column => {
-            let maxLength = 0;
-            column.eachCell({ includeEmpty: true }, cell => {
-                let cellLength = 0;
-                if (cell.value) {
-                    cellLength = cell.value.toString().length;
-                }
-                if (cellLength > maxLength) {
-                    maxLength = cellLength;
-                }
-            });
-            column.width = Math.min(Math.max(maxLength + 2, 10), 50);
-        });
-
-        return workbook;
-
-    } catch (error) {
-        console.error('Error al construir Excel:', error);
-        throw new Error('Error interno al generar el archivo Excel');
+        }
     }
-};
+
+    ws.getCell(cell.row, nextCol).value = value;
+}
+
+/* -------------------------------------------------------------------------
+ * Localiza fila de cabeceras (CANTIDAD | UNIDAD | DESCRIPCIÓN | …)
+ * -------------------------------------------------------------------------*/
+function locateTable(ws) {
+    const headerKeys = {
+        cantidad   : ['CANTIDAD', 'CANT'],
+        unidad     : ['UNIDAD', 'UND'],
+        descripcion: ['DESCRIPCION', 'DESCRIPCIÓN', 'DESC'],
+        precio     : ['P/U', 'PU', 'PRECIO UNITARIO'],
+        total      : ['TOTAL', 'VALOR TOTAL'],
+    };
+
+    for (const row of ws._rows.filter(Boolean)) {
+        const map = {};
+        row.eachCell((cell, col) => {
+            const txt = norm(cell.value);
+            if (!txt) return;                            // ④ ignora vacíos
+            Object.entries(headerKeys).forEach(([k, opts]) => {
+                if (opts.some((o) => txt === o)) map[k] = col;
+            });
+        });
+        if (Object.keys(headerKeys).every((k) => map[k] !== undefined)) {
+            let startRow = row.number + 1;
+            while (
+                ws.getRow(startRow).values.some(
+                    (v, i) => i !== 0 && v !== null && v !== undefined && v !== ''
+                )
+                ) {
+                startRow += 1;
+            }
+            return { startRow, cols: map };
+        }
+    }
+    throw new Error(
+        'No se encontró la fila de cabeceras de la tabla de ítems (CANTIDAD | UNIDAD | …)'
+    );
+}
+
+/* ───────────────────────── Constructor ───────────────────────── */
+export async function buildExcelAdquisicion({ cabecera: h, items }) {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(TEMPLATE);
+    const ws = wb.getWorksheet(1);
+
+    /* 1. Marcadores {{TAG}} --------------------------------------------- */
+    ws.eachRow((row) =>
+        row.eachCell((cell) => {
+            put(cell, 'UNIDAD_SOLICITANTE', h.unidadSolicitante);
+            put(cell, 'RESPONSABLE',        h.responsable);
+            put(cell, 'CENTRO_COSTO',       h.centroCosto);
+            put(cell, 'CODIGO_INVERSION',   h.codigoInversion);
+            put(cell, 'FECHA_DIA',          String(h.fechaEmision.dia).padStart(2, '0'));
+            put(cell, 'FECHA_MES',          String(h.fechaEmision.mes).padStart(2, '0'));
+            put(cell, 'FECHA_ANIO',         h.fechaEmision.anio);
+            put(cell, 'JUSTIFICACION',      h.justificacion);
+            put(cell, 'OBSERVACIONES',      h.observaciones);
+            put(
+                cell,
+                'MONTO_TOTAL',
+                h.montoTotal.toLocaleString('es-BO', { minimumFractionDigits: 2 })
+            );
+            put(cell, 'MONTO_LETRAS',       h.montoLetras);
+        })
+    );
+
+    /* 2. Etiquetas visibles --------------------------------------------- */
+    const labelMap = {
+        'UNIDAD SOLICITANTE':         h.unidadSolicitante,
+        'CENTRO DE COSTO':            h.centroCosto,
+        RESPONSABLE:                  h.responsable,
+        'NRO. CODIGO DE INVERSION':   h.codigoInversion,
+    };
+
+    ws.eachRow((row) =>
+        row.eachCell((cell) => {
+            const txt = norm(cell.value);
+            Object.entries(labelMap).forEach(([lbl, val]) => {
+                if (txt.startsWith(lbl) && val) putNext(ws, cell, val);
+            });
+            if (txt.startsWith('FECHA EMISION DEL PEDIDO')) {
+                ws.getCell(cell.row, cell.col + 1).value = h.fechaEmision.dia;
+                ws.getCell(cell.row, cell.col + 2).value = h.fechaEmision.mes;
+                ws.getCell(cell.row, cell.col + 4).value = h.fechaEmision.anio; // salta “/”
+            }
+        })
+    );
+
+    /* 3. Ítems ----------------------------------------------------------- */
+    const { startRow, cols } = locateTable(ws);
+    let r = startRow;
+    items.forEach((it) => {
+        const row = ws.getRow(r++);
+        row.getCell(cols.cantidad   ).value = it.cantidad;
+        row.getCell(cols.unidad     ).value = it.unidad;
+        row.getCell(cols.descripcion).value = it.descripcion;
+        row.getCell(cols.precio     ).value = it.precioUnitario;
+        row.getCell(cols.total      ).value = it.totalItem;
+        row.commit();                                // ⑤ guarda en memoria
+    });
+
+    return wb;
+}
