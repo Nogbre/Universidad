@@ -31,7 +31,12 @@ function put(cell, tag, value = '') {
 
 /* Utilidad para pasar "AB12" → { row:12, col:28 } */
 function decodeAddr(addr) {
-    const [, letters, digits] = addr.match(/^([A-Z]+)(\d+)$/);
+    /* ─── salvaguardas frente a refs vacías o mal formadas ─── */
+    if (typeof addr !== 'string')      return { row: 0, col: 0 };
+    const m = addr.match(/^([A-Z]+)(\d+)$/);
+    if (!m)                            return { row: 0, col: 0 };
+    const [, letters, digits] = m;
+
     let col = 0;
     for (const ch of letters) col = col * 26 + (ch.charCodeAt(0) - 64);
     return { row: Number(digits), col };
@@ -39,19 +44,22 @@ function decodeAddr(addr) {
 
 /** ③ Escribe `value` en la primera celda a la derecha de la etiqueta (maneja fusiones) */
 function putNext(ws, cell, value) {
-    let nextCol = cell.col + 1;                       // por defecto (no fusionado)
+    let nextCol = cell.col + 1;                               // por defecto (no fusionado)
 
     if (cell.isMerged && ws._merges) {
         /* _merges puede ser:
-           – Map   (<key:string, val:{model:{top,left,bottom,right}}>)
+           – Map   (<key:string, val:{model:{top,left,bottom,right}}> )
            – plain object { 'A1:B3':true, 'C1:D1':true, … }
         */
-        const mergeRefs =
-            ws._merges instanceof Map ? Array.from(ws._merges.keys())
-                : Object.keys(ws._merges);
+        const rawRefs = ws._merges instanceof Map
+            ? Array.from(ws._merges.keys())
+            : Object.keys(ws._merges);
+
+        /* Filtramos refs no-válidas ( p. ej. objetos vacíos o sin “:” ) */
+        const mergeRefs = rawRefs.filter(ref => typeof ref === 'string' && ref.includes(':'));
 
         for (const ref of mergeRefs) {
-            const [tl, br] = ref.split(':');              // "A1:B3"
+            const [tl, br]           = ref.split(':');        // "A1:B3"
             const { row: r1, col: c1 } = decodeAddr(tl);
             const { row: r2, col: c2 } = decodeAddr(br);
 
@@ -59,7 +67,7 @@ function putNext(ws, cell, value) {
                 cell.row >= r1 && cell.row <= r2 &&
                 cell.col >= c1 && cell.col <= c2
             ) {
-                nextCol = c2 + 1;                           // justo después del bloque
+                nextCol = c2 + 1;                               // justo después del bloque
                 break;
             }
         }
@@ -84,12 +92,13 @@ function locateTable(ws) {
         const map = {};
         row.eachCell((cell, col) => {
             const txt = norm(cell.value);
-            if (!txt) return;                            // ④ ignora vacíos
+            if (!txt) return;                                  /* ④ ignora vacíos */
             Object.entries(headerKeys).forEach(([k, opts]) => {
-                if (opts.some((o) => txt === o)) map[k] = col;
+                if (opts.some(o => txt === o)) map[k] = col;
             });
         });
-        if (Object.keys(headerKeys).every((k) => map[k] !== undefined)) {
+
+        if (Object.keys(headerKeys).every(k => map[k] !== undefined)) {
             let startRow = row.number + 1;
             while (
                 ws.getRow(startRow).values.some(
@@ -113,8 +122,8 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
     const ws = wb.getWorksheet(1);
 
     /* 1. Marcadores {{TAG}} --------------------------------------------- */
-    ws.eachRow((row) =>
-        row.eachCell((cell) => {
+    ws.eachRow(row =>
+        row.eachCell(cell => {
             put(cell, 'UNIDAD_SOLICITANTE', h.unidadSolicitante);
             put(cell, 'RESPONSABLE',        h.responsable);
             put(cell, 'CENTRO_COSTO',       h.centroCosto);
@@ -135,14 +144,14 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
 
     /* 2. Etiquetas visibles --------------------------------------------- */
     const labelMap = {
-        'UNIDAD SOLICITANTE':         h.unidadSolicitante,
-        'CENTRO DE COSTO':            h.centroCosto,
-        RESPONSABLE:                  h.responsable,
-        'NRO. CODIGO DE INVERSION':   h.codigoInversion,
+        'UNIDAD SOLICITANTE':       h.unidadSolicitante,
+        'CENTRO DE COSTO':          h.centroCosto,
+        RESPONSABLE:                h.responsable,
+        'NRO. CODIGO DE INVERSION': h.codigoInversion,
     };
 
-    ws.eachRow((row) =>
-        row.eachCell((cell) => {
+    ws.eachRow(row =>
+        row.eachCell(cell => {
             const txt = norm(cell.value);
             Object.entries(labelMap).forEach(([lbl, val]) => {
                 if (txt.startsWith(lbl) && val) putNext(ws, cell, val);
@@ -158,14 +167,14 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
     /* 3. Ítems ----------------------------------------------------------- */
     const { startRow, cols } = locateTable(ws);
     let r = startRow;
-    items.forEach((it) => {
+    items.forEach(it => {
         const row = ws.getRow(r++);
         row.getCell(cols.cantidad   ).value = it.cantidad;
         row.getCell(cols.unidad     ).value = it.unidad;
         row.getCell(cols.descripcion).value = it.descripcion;
         row.getCell(cols.precio     ).value = it.precioUnitario;
         row.getCell(cols.total      ).value = it.totalItem;
-        row.commit();                                // ⑤ guarda en memoria
+        row.commit();                                      /* ⑤ guarda en memoria */
     });
 
     return wb;
