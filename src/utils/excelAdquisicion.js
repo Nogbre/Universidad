@@ -1,7 +1,7 @@
 /* ──────────────────────────────────────────────────────────────────────
  *  src/utils/excelAdquisicion.js
  *  Genera la planilla “Solicitud de Adquisición de Activos”
- *  (mantén numeradas las secciones ①-⑤: sirven como guía de mantenimiento)
+ *  (secciones ①-⑤ numeradas para mantenimiento)
  * ────────────────────────────────────────────────────────────────────── */
 
 import path              from 'path';
@@ -22,21 +22,18 @@ const norm = (txt) =>
         .replace(/[\u0300-\u036F]/g, '')
         .trim();
 
-/** ② Sustituye {{TAG}} dentro de la misma celda */
+/** ② Sustituye {{TAG}} dentro de la misma celda (conserva el resto del texto) */
 function put(cell, tag, value = '') {
     if (typeof cell.value !== 'string') return;
     const re = new RegExp(`{{\\s*${tag}\\s*}}`, 'gi');
     if (re.test(cell.value)) cell.value = cell.value.replace(re, value);
 }
 
-/* Utilidad para pasar "AB12" → { row:12, col:28 } */
+/* Utilidad: "AB12" → { row:12, col:28 } */
 function decodeAddr(addr) {
-    /* ─── salvaguardas frente a refs vacías o mal formadas ─── */
-    if (typeof addr !== 'string')      return { row: 0, col: 0 };
-    const m = addr.match(/^([A-Z]+)(\d+)$/);
-    if (!m)                            return { row: 0, col: 0 };
+    const m = typeof addr === 'string' && addr.match(/^([A-Z]+)(\d+)$/);
+    if (!m) return { row: 0, col: 0 };
     const [, letters, digits] = m;
-
     let col = 0;
     for (const ch of letters) col = col * 26 + (ch.charCodeAt(0) - 64);
     return { row: Number(digits), col };
@@ -44,30 +41,17 @@ function decodeAddr(addr) {
 
 /** ③ Escribe `value` en la primera celda a la derecha de la etiqueta (maneja fusiones) */
 function putNext(ws, cell, value) {
-    let nextCol = cell.col + 1;                               // por defecto (no fusionado)
+    let nextCol = cell.col + 1;
 
     if (cell.isMerged && ws._merges) {
-        /* _merges puede ser:
-           – Map   (<key:string, val:{model:{top,left,bottom,right}}> )
-           – plain object { 'A1:B3':true, 'C1:D1':true, … }
-        */
-        const rawRefs = ws._merges instanceof Map
-            ? Array.from(ws._merges.keys())
+        const refs = ws._merges instanceof Map ? [...ws._merges.keys()]
             : Object.keys(ws._merges);
-
-        /* Filtramos refs no-válidas ( p. ej. objetos vacíos o sin “:” ) */
-        const mergeRefs = rawRefs.filter(ref => typeof ref === 'string' && ref.includes(':'));
-
-        for (const ref of mergeRefs) {
-            const [tl, br]           = ref.split(':');        // "A1:B3"
+        for (const ref of refs.filter(r => typeof r === 'string' && r.includes(':'))) {
+            const [tl, br]           = ref.split(':');
             const { row: r1, col: c1 } = decodeAddr(tl);
             const { row: r2, col: c2 } = decodeAddr(br);
-
-            if (
-                cell.row >= r1 && cell.row <= r2 &&
-                cell.col >= c1 && cell.col <= c2
-            ) {
-                nextCol = c2 + 1;                               // justo después del bloque
+            if (cell.row >= r1 && cell.row <= r2 && cell.col >= c1 && cell.col <= c2) {
+                nextCol = c2 + 1;
                 break;
             }
         }
@@ -92,7 +76,7 @@ function locateTable(ws) {
         const map = {};
         row.eachCell((cell, col) => {
             const txt = norm(cell.value);
-            if (!txt) return;                                  /* ④ ignora vacíos */
+            if (!txt) return;                               /* ④ ignora vacíos */
             Object.entries(headerKeys).forEach(([k, opts]) => {
                 if (opts.some(o => txt === o)) map[k] = col;
             });
@@ -104,9 +88,8 @@ function locateTable(ws) {
                 ws.getRow(startRow).values.some(
                     (v, i) => i !== 0 && v !== null && v !== undefined && v !== ''
                 )
-                ) {
-                startRow += 1;
-            }
+                ) startRow += 1;
+
             return { startRow, cols: map };
         }
     }
@@ -121,33 +104,29 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
     await wb.xlsx.readFile(TEMPLATE);
     const ws = wb.getWorksheet(1);
 
-    /* 1. Marcadores {{TAG}} --------------------------------------------- */
+    /* 1. Marcadores {{TAG}} — sólo campos de texto grande -------------------- */
     ws.eachRow(row =>
         row.eachCell(cell => {
-            put(cell, 'UNIDAD_SOLICITANTE', h.unidadSolicitante);
-            put(cell, 'RESPONSABLE',        h.responsable);
-            put(cell, 'CENTRO_COSTO',       h.centroCosto);
-            put(cell, 'CODIGO_INVERSION',   h.codigoInversion);
-            put(cell, 'FECHA_DIA',          String(h.fechaEmision.dia).padStart(2, '0'));
-            put(cell, 'FECHA_MES',          String(h.fechaEmision.mes).padStart(2, '0'));
-            put(cell, 'FECHA_ANIO',         h.fechaEmision.anio);
-            put(cell, 'JUSTIFICACION',      h.justificacion);
-            put(cell, 'OBSERVACIONES',      h.observaciones);
+            put(cell, 'JUSTIFICACION',  h.justificacion);
+            put(cell, 'OBSERVACIONES',  h.observaciones);
+            put(cell, 'FECHA_DIA',      String(h.fechaEmision.dia).padStart(2, '0'));
+            put(cell, 'FECHA_MES',      String(h.fechaEmision.mes).padStart(2, '0'));
+            put(cell, 'FECHA_ANIO',     h.fechaEmision.anio);
             put(
                 cell,
                 'MONTO_TOTAL',
                 h.montoTotal.toLocaleString('es-BO', { minimumFractionDigits: 2 })
             );
-            put(cell, 'MONTO_LETRAS',       h.montoLetras);
+            put(cell, 'MONTO_LETRAS',   h.montoLetras);
         })
     );
 
-    /* 2. Etiquetas visibles --------------------------------------------- */
+    /* 2. Etiquetas visibles -------------------------------------------------- */
     const labelMap = {
-        'UNIDAD SOLICITANTE':       h.unidadSolicitante,
-        'CENTRO DE COSTO':          h.centroCosto,
-        RESPONSABLE:                h.responsable,
-        'NRO. CODIGO DE INVERSION': h.codigoInversion,
+        'UNIDAD SOLICITANTE'       : h.unidadSolicitante,
+        'CENTRO DE COSTO'          : h.centroCosto,
+        RESPONSABLE                : h.responsable,
+        'NRO. CODIGO DE INVERSION' : h.codigoInversion,
     };
 
     ws.eachRow(row =>
@@ -164,7 +143,7 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
         })
     );
 
-    /* 3. Ítems ----------------------------------------------------------- */
+    /* 3. Ítems -------------------------------------------------------------- */
     const { startRow, cols } = locateTable(ws);
     let r = startRow;
     items.forEach(it => {
@@ -174,7 +153,7 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
         row.getCell(cols.descripcion).value = it.descripcion;
         row.getCell(cols.precio     ).value = it.precioUnitario;
         row.getCell(cols.total      ).value = it.totalItem;
-        row.commit();                                      /* ⑤ guarda en memoria */
+        row.commit();                                    /* ⑤ guarda en memoria */
     });
 
     return wb;
