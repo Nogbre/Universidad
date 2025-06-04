@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const buildExcelAdquisicion = async (payload) => {
     try {
         // 1. Cargar plantilla
-        const templatePath = path.join(__dirname, '../../templates/solicitud_adquisicion_template.xlsx');
+        const templatePath = path.join(__dirname, '../../templates/solicitud.xlsx');
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(templatePath);
         const worksheet = workbook.getWorksheet('Solicitud');
