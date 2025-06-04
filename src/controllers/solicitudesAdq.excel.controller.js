@@ -10,46 +10,44 @@ export const generarExcelSolicitudAdquisicion = async (req, res) => {
 
         const pool = await getConnection();
 
-        /* ── Cabecera de la solicitud ───────────────────────────────────── */
-        const cab = await pool.request()
+        /* ────────────────── Cabecera ────────────────── */
+        const cabRS = await pool.request()
             .input('id', sql.Int, id)
             .query(`
-        SELECT sa.*,
-               el.nombre + ' ' + el.apellido AS encargado,
-               el.unidad_solicitante         AS unidad
-        FROM   SolicitudesAdquisicion sa
-           JOIN EncargadoLaboratorio el ON el.id_encargado = sa.id_encargado
-        WHERE  sa.id_solicitud = @id;
-      `);
+                SELECT sa.*,
+                       el.nombre + ' ' + el.apellido AS encargado,
+                       el.unidad_solicitante         AS unidad
+                FROM   SolicitudesAdquisicion sa
+                           JOIN EncargadoLaboratorio el ON el.id_encargado = sa.id_encargado
+                WHERE  sa.id_solicitud = @id;
+            `);
 
-        if (!cab.recordset.length)
+        if (!cabRS.recordset.length) {
             return res.status(404).json({ message: 'Solicitud no encontrada' });
+        }
+        const s = cabRS.recordset[0];
 
-        const s = cab.recordset[0];
-
-        /* ── Detalle de ítems ───────────────────────────────────────────── */
-        const det = await pool.request()
+        /* ────────────────── Detalle ────────────────── */
+        const detRS = await pool.request()
             .input('id', sql.Int, id)
             .query(`
-        SELECT dsa.cantidad,
-               dsa.unidad,
-               dsa.descripcion,
-               dsa.precio_unitario,
-               dsa.total_item
-        FROM   DetalleSolicitudAdquisicion dsa
-        WHERE  dsa.id_solicitud = @id
-        ORDER  BY dsa.id_detalle;
-      `);
+                SELECT cantidad , unidad , descripcion ,
+                       precio_unitario , total_item
+                FROM   DetalleSolicitudAdquisicion
+                WHERE  id_solicitud = @id
+                ORDER  BY id_detalle;
+            `);
 
-        /* ── Construcción de la estructura para Excel ───────────────────── */
-        const data = {
-            cabecera : {
+        /* ────────────────── Build payload ────────────────── */
+        const hoy = new Date();                               // ← fecha actual
+        const payload = {
+            cabecera: {
                 unidadSolicitante : s.unidad,
-                responsable       : s.responsable,
+                responsable       : s.responsable?.trim() || s.encargado,
                 fechaEmision      : {
-                    dia  : new Date(s.fecha_emision).getDate(),
-                    mes  : new Date(s.fecha_emision).getMonth() + 1,
-                    anio : new Date(s.fecha_emision).getFullYear()
+                    dia  : hoy.getDate(),
+                    mes  : hoy.getMonth() + 1,
+                    anio : hoy.getFullYear()
                 },
                 centroCosto    : s.centro_costo     ?? '',
                 codigoInversion: s.codigo_inversion ?? '',
@@ -58,7 +56,7 @@ export const generarExcelSolicitudAdquisicion = async (req, res) => {
                 montoTotal     : Number(s.monto_total),
                 montoLetras    : s.monto_letras
             },
-            items : det.recordset.map(r => ({
+            items: detRS.recordset.map(r => ({
                 cantidad       : r.cantidad,
                 unidad         : r.unidad,
                 descripcion    : r.descripcion,
@@ -67,8 +65,8 @@ export const generarExcelSolicitudAdquisicion = async (req, res) => {
             }))
         };
 
-        /* ── Crear y enviar el Excel ─────────────────────────────────────── */
-        const wb = await buildExcelAdquisicion(data);
+        /* ────────────────── Excel ────────────────── */
+        const wb = await buildExcelAdquisicion(payload);
 
         res.setHeader(
             'Content-Type',
@@ -76,7 +74,7 @@ export const generarExcelSolicitudAdquisicion = async (req, res) => {
         );
         res.setHeader(
             'Content-Disposition',
-            `attachment; filename=Solicitud_Adquisicion_${id}_${s.fecha_emision}.xlsx`
+            `attachment; filename=Solicitud_Adquisicion_${id}_${hoy.toISOString().split('T')[0]}.xlsx`
         );
 
         await wb.xlsx.write(res);

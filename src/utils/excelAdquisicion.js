@@ -1,3 +1,11 @@
+/* ──────────────────────────────────────────────────────────────────────
+ *  src/utils/excelAdquisicion.js
+ *  Genera la planilla “Solicitud de Adquisición de Activos” a partir de
+ *  una plantilla Excel con marcadores {{TAG}} y una tabla dinámica de
+ *  ítems.  NO elimines ninguno de los comentarios numerados (①, ②…) :
+ *  sirven para documentar pasos clave del algoritmo.
+ * ────────────────────────────────────────────────────────────────────── */
+
 import path              from 'path';
 import { fileURLToPath } from 'url';
 import ExcelJS           from 'exceljs';
@@ -7,16 +15,16 @@ const TEMPLATE   = path.join(__dirname, '../templates/solicitud.xlsx');
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
-/** normaliza texto p/ comparaciones: mayúsculas, sin tildes, sin espacios extras */
+/** ① normaliza texto para comparaciones: mayúsculas, sin tildes, sin espacios extras */
 const norm = (txt) =>
-    (txt ?? '')                        // ① asegura string no-nulo
+    (txt ?? '')                        // asegura string no-nulo
         .toString()
         .toUpperCase()
         .normalize('NFD')                // quita acentos
         .replace(/[\u0300-\u036f]/g, '')
         .trim();
 
-/** Reemplaza {{TAG}} o {{ TAG }} en una celda manteniendo el resto del texto */
+/** ② Reemplaza {{TAG}} o {{ TAG }} en una celda manteniendo el resto del texto */
 function put(cell, tag, value = '') {
     if (typeof cell.value !== 'string') return;
     const re = new RegExp(`{{\\s*${tag}\\s*}}`, 'gi');
@@ -26,7 +34,12 @@ function put(cell, tag, value = '') {
 /* -------------------------------------------------------------------------
  * Localiza la fila de cabeceras   (CANTIDAD | UNIDAD | DESCRIPCIÓN | P/U | …)
  * Devuelve:
- *   { startRow, cols:{ cantidad, unidad, descripcion, precio, total } }
+ *   {
+ *     startRow,                 // primera fila 100 % vacía después de cabeceras
+ *     cols:{                    // índices de columna para cada campo
+ *       cantidad, unidad, descripcion, precio, total
+ *     }
+ *   }
  * -------------------------------------------------------------------------*/
 function locateTable(ws) {
     const headerKeys = {
@@ -37,20 +50,23 @@ function locateTable(ws) {
         total      : ['TOTAL', 'VALOR TOTAL']
     };
 
+    /* recorre TODAS las filas físicas de la hoja */
     for (const row of ws._rows.filter(Boolean)) {
         const map = {};
 
         row.eachCell((cell, colNumber) => {
             const txt = norm(cell.value);
-            if (!txt) return;                          // ② ignora celdas vacías
+            if (!txt) return;                       // ③ ignora celdas vacías
+
+            /* intenta casar cada celda con alguno de los encabezados esperados */
             Object.entries(headerKeys).forEach(([key, options]) => {
                 if (options.some(o => txt === o)) map[key] = colNumber;
             });
         });
 
-        // ¿encontramos TODAS las cabeceras?
+        /* ¿encontramos TODAS las cabeceras? */
         if (Object.keys(headerKeys).every(k => map[k] !== undefined)) {
-            /* ——— startRow = primera fila 100 % vacía después de la cabecera ——— */
+            /* ——— primera fila completamente vacía DESPUÉS de la cabecera ——— */
             let startRow = row.number + 1;
             while (
                 ws.getRow(startRow).values.some(
@@ -62,17 +78,24 @@ function locateTable(ws) {
             return { startRow, cols: map };
         }
     }
+
+    /* si llegamos aquí algo está mal con la plantilla */
     throw new Error(
-        'No se encontró la fila de cabeceras de la tabla de ítems (CANTIDAD | UNIDAD …)'
+        'No se encontró la fila de cabeceras de la tabla de ítems (CANTIDAD | UNIDAD | …)'
     );
 }
 
-/* ───────────────────────── Constructor ───────────────────────── */
-
+/* ───────────────────────── Constructor ─────────────────────────
+ * buildExcelAdquisicion({
+ *   cabecera : { … },
+ *   items    : [{ cantidad, unidad, descripcion, precioUnitario, totalItem }]
+ * })
+ *   → devuelve un Workbook (ExcelJS) listo para .xlsx.write(res)
+ * ----------------------------------------------------------------*/
 export async function buildExcelAdquisicion({ cabecera: h, items }) {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(TEMPLATE);
-    const ws = wb.getWorksheet(1);
+    const ws = wb.getWorksheet(1);                       // primera hoja
 
     /* 1. Marcadores simples --------------------------------------------------- */
     ws.eachRow(row =>
@@ -81,17 +104,21 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
             put(cell, 'RESPONSABLE',        h.responsable);
             put(cell, 'CENTRO_COSTO',       h.centroCosto);
             put(cell, 'CODIGO_INVERSION',   h.codigoInversion);
-            put(cell, 'FECHA_DIA',          String(h.fechaEmision.dia).padStart(2,'0'));
-            put(cell, 'FECHA_MES',          String(h.fechaEmision.mes).padStart(2,'0'));
+            put(cell, 'FECHA_DIA',          String(h.fechaEmision.dia).padStart(2, '0'));
+            put(cell, 'FECHA_MES',          String(h.fechaEmision.mes).padStart(2, '0'));
             put(cell, 'FECHA_ANIO',         h.fechaEmision.anio);
             put(cell, 'JUSTIFICACION',      h.justificacion);
             put(cell, 'OBSERVACIONES',      h.observaciones);
-            put(cell, 'MONTO_TOTAL',        h.montoTotal.toLocaleString('es-BO',{minimumFractionDigits:2}));
+            put(
+                cell,
+                'MONTO_TOTAL',
+                h.montoTotal.toLocaleString('es-BO', { minimumFractionDigits: 2 })
+            );
             put(cell, 'MONTO_LETRAS',       h.montoLetras);
         })
     );
 
-    /* 2. Volcado de ítems ----------------------------------------------------- */
+    /* 2. Volcado dinámico de ítems ------------------------------------------- */
     const { startRow, cols } = locateTable(ws);
     let r = startRow;
 
@@ -102,7 +129,7 @@ export async function buildExcelAdquisicion({ cabecera: h, items }) {
         row.getCell(cols.descripcion).value = it.descripcion;
         row.getCell(cols.precio     ).value = it.precioUnitario;
         row.getCell(cols.total      ).value = it.totalItem;
-        row.commit();
+        row.commit();                               // ④ graba la fila en memoria
     });
 
     return wb;
