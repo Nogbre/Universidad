@@ -1,4 +1,3 @@
-// src/controllers/solicitudesEst.controller.js
 import sql from 'mssql';
 import { getConnection } from '../database/connection.js';
 import { buildExcel } from '../utils/excelSolicitud.js';
@@ -16,7 +15,6 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
 
         const pool = await getConnection();
 
-        /* ────────────────── 1. Cabecera (alumno, carrera, materia, docente) ────────────────── */
         const cabeceraRs = await pool.request()
             .input('id', sql.Int, id)
             .query(`
@@ -25,12 +23,12 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
                     e.nombre + ' ' + e.apellido                       AS alumno,
                     c.nombre                                          AS carrera,
                     m.nombre                                          AS materia,
-                    d.docente                                         AS docente        -- ← obtenido con APPLY
+                    d.docente                                         AS docente        
                 FROM  SolicitudesEstudiantes s
                           JOIN Estudiantes e       ON e.id_estudiante = s.id_estudiante
                           JOIN Carreras   c        ON c.id_carrera    = s.id_carrera
                           JOIN Materias   m        ON m.id_materia    = s.id_materia
-                    OUTER APPLY (            -- Docente “más cercano” (misma carrera); si no hay, NULL
+                    OUTER APPLY (            
                   SELECT TOP 1 nombre + ' ' + apellido AS docente
                   FROM   Docentes
                   WHERE  id_carrera = c.id_carrera
@@ -43,7 +41,6 @@ export const generarExcelSolicitudEstudiante = async (req, res) => {
         }
         const s = cabeceraRs.recordset[0];
 
-        /* ────────────────── 2. Detalle de insumos ────────────────── */
         const detalleRs = await pool.request()
             .input('id', sql.Int, id)
             .query(`
