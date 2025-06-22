@@ -14,7 +14,8 @@ const allowedOrigins = [
   'http://localhost:8081',
   'http://localhost:8082',
   'http://localhost:8083',
-  'http://127.0.0.1:3000'
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001'
 ];
 
 app.use(cors({
@@ -48,6 +49,7 @@ import aulaLaboratorioRoutes from "./routes/aulaLaboratorio.routes.js";
 import generarExcelSolicitudEstudianteRoutes from "./routes/solicitudesEst.routes.js";
 import excelRoutes from './routes/excel.routes.js';
 import excelAdquisicionRoutes from "./routes/excelAdquisicion.routes.js";
+import insumosAveriadosRoutes from "./routes/insumosAveriadosRoutes.js";
 
 
 app.use('/auth', authRoutes);
@@ -73,6 +75,8 @@ app.use('/aulas', aulaLaboratorioRoutes);
 app.use(generarExcelSolicitudEstudianteRoutes);
 app.use('/api', excelRoutes);
 app.use(excelAdquisicionRoutes);
+app.use('/insumos-averiados', insumosAveriadosRoutes);
+
 
 
 export default app;

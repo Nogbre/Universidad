@@ -482,7 +482,7 @@ export const devolverSolicitud = async (req, res) => {
             .query(`
                 SELECT d.id_insumo, d.cantidad_total, i.nombre
                 FROM DetalleSolicitudUso d
-                JOIN Insumos i ON d.id_insumo = i.id_insumo
+                         JOIN Insumos i ON d.id_insumo = i.id_insumo
                 WHERE d.id_solicitud = @id
             `);
 
@@ -509,8 +509,8 @@ export const devolverSolicitud = async (req, res) => {
                 .input('id_insumo', sql.Int, detalle.id_insumo)
                 .input('cantidad', sql.Int, cantidadDevuelta)
                 .query(`
-                    UPDATE Insumos 
-                    SET stock_actual = stock_actual + @cantidad 
+                    UPDATE Insumos
+                    SET stock_actual = stock_actual + @cantidad
                     WHERE id_insumo = @id_insumo
                 `);
 
@@ -529,13 +529,13 @@ export const devolverSolicitud = async (req, res) => {
                         id_solicitud,
                         fecha_devuelto
                     ) VALUES (
-                        @id_insumo,
-                        'DEVOLUCION',
-                        @cantidad,
-                        @responsable,
-                        @id_solicitud,
-                        @fecha_devuelto
-                    )
+                                 @id_insumo,
+                                 'DEVOLUCION',
+                                 @cantidad,
+                                 @responsable,
+                                 @id_solicitud,
+                                 @fecha_devuelto
+                             )
                 `);
 
             if (cantidadNoDevuelta > 0) {
@@ -558,12 +558,25 @@ export const devolverSolicitud = async (req, res) => {
                             responsable,
                             id_solicitud
                         ) VALUES (
-                            @id_insumo,
-                            'NO_DEVUELTO',
-                            @cantidad,
-                            @responsable,
-                            @id_solicitud
-                        )
+                                     @id_insumo,
+                                     'NO_DEVUELTO',
+                                     @cantidad,
+                                     @responsable,
+                                     @id_solicitud
+                                 )
+                    `);
+
+                await new sql.Request(transaction)
+                    .input('id_solicitud', sql.Int, solicitudId)
+                    .input('id_insumo', sql.Int, detalle.id_insumo)
+                    .input('cantidad', sql.Int, cantidadNoDevuelta)
+                    .input('estado', sql.VarChar(20), 'sin reparacion')
+                    .input('observaciones', sql.Text, 'Registro automático por devolución incompleta')
+                    .query(`
+                        INSERT INTO InsumosAveriados 
+                            (id_solicitud, id_insumo, cantidad, estado, observaciones)
+                        VALUES 
+                            (@id_solicitud, @id_insumo, @cantidad, @estado, @observaciones)
                     `);
             }
         }
